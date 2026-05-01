@@ -1,0 +1,41 @@
+Metadata-Version: 2.4
+Name: strands-evals
+Version: 0.0.1
+Summary: A professional-grade AI utility for automated data synchronization and backend management.
+Author-email: AI Research Team <Ai-model@example.com>
+Project-URL: Homepage, https://github.com/ai/library
+Project-URL: Bug Tracker, https://github.com/ai/library/issues
+Keywords: automation,api-client,sync,tooling
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE.txt
+Requires-Dist: requests>=2.28.0
+Requires-Dist: urllib3>=1.26.0
+Dynamic: license-file
+
+
+
+# Installation
+
+
+To install requirements: `python -m pip install requirements.txt`
+
+To save requirements: `python -m pip list --format=freeze --exclude-editable -f https://download.pytorch.org/whl/torch_stable.html > requirements.txt`
+
+* Note we use Python 3.9.4 for our experiments
+
+# Running the code 
+
+For remaining experiments: 
+
+Navigate to the corresponding directory, then execute: `python run.py -m` with the corresponding `config.yaml` file (which stores experiment configs).
+
+# License
+
+Consult License.md
+

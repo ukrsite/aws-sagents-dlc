@@ -1,0 +1,10 @@
+[
+  {"phase": "Inception", "stage": "Workspace Detection", "activity": "Scan workspace for existing code", "description": "Detect brownfield vs greenfield project", "duration_estimate": "5 min"},
+  {"phase": "Inception", "stage": "Requirements Analysis", "activity": "Gather functional requirements", "description": "Analyze user request and extract requirements", "duration_estimate": "15 min"},
+  {"phase": "Inception", "stage": "Workflow Planning", "activity": "Create execution plan", "description": "Determine which stages to execute", "duration_estimate": "10 min"},
+  {"phase": "Construction", "stage": "Functional Design", "activity": "Design business logic", "description": "Technology-agnostic design of core functionality", "duration_estimate": "20 min"},
+  {"phase": "Construction", "stage": "Code Generation", "activity": "Generate implementation code", "description": "Produce working code from design artifacts", "duration_estimate": "30 min"},
+  {"phase": "Construction", "stage": "Build and Test", "activity": "Build and run tests", "description": "Compile, build, and execute test suite", "duration_estimate": "15 min"},
+  {"phase": "Operations", "stage": "Operations", "activity": "Deploy and monitor", "description": "Placeholder for future deployment workflows", "duration_estimate": "TBD"},
+  {"phase": "Inception", "stage": "Application Design", "activity": "Design component architecture", "description": "Identify components, methods, and service layers", "duration_estimate": "25 min"}
+]

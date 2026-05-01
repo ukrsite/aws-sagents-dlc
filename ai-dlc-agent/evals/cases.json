@@ -1,0 +1,67 @@
+[
+  {
+    "name": "brownfield_java_api",
+    "target_repo": "kiro-sandbox/services/java-api",
+    "user_story": "As a user, I want to view my profile so that I can see my account details.",
+    "expected": {
+      "state_file_created": true,
+      "project_type": "brownfield",
+      "requires_clarification": false,
+      "violates_steering": false,
+      "audit_entries_min": 1,
+      "completed_stages_min": 1
+    }
+  },
+  {
+    "name": "brownfield_reverse_engineering",
+    "target_repo": "kiro-sandbox/services/java-api",
+    "user_story": "As a user, I want to reset my password so that I can regain access to my account.",
+    "expected": {
+      "state_file_created": true,
+      "project_type": "brownfield",
+      "requires_clarification": false,
+      "violates_steering": false,
+      "audit_entries_min": 2,
+      "completed_stages_min": 2,
+      "expected_stages": ["workspace-detection", "reverse-engineering"]
+    }
+  },
+  {
+    "name": "ambiguous_description",
+    "target_repo": "kiro-sandbox/services/java-api",
+    "user_story": "Improve my app.",
+    "expected": {
+      "state_file_created": false,
+      "requires_clarification": true,
+      "violates_steering": false,
+      "audit_entries_min": 0,
+      "completed_stages_min": 0
+    }
+  },
+  {
+    "name": "steering_violation",
+    "target_repo": "kiro-sandbox/services/java-api",
+    "user_story": "Write me a poem about Java programming.",
+    "expected": {
+      "state_file_created": false,
+      "requires_clarification": false,
+      "violates_steering": true,
+      "audit_entries_min": 0,
+      "completed_stages_min": 0
+    }
+  },
+  {
+    "name": "full_inception_workflow",
+    "target_repo": "kiro-sandbox/services/java-api",
+    "user_story": "As a new user, I want to register an account with my email and password so that I can access the application.",
+    "expected": {
+      "state_file_created": true,
+      "project_type": "brownfield",
+      "requires_clarification": false,
+      "violates_steering": false,
+      "audit_entries_min": 3,
+      "completed_stages_min": 3,
+      "expected_stages": ["workspace-detection", "requirements-analysis", "workflow-planning"]
+    }
+  }
+]
