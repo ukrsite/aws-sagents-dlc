@@ -12,13 +12,114 @@ from typing import Any
 
 from app.agents.construction_agent import build_construction_agent
 from app.agents.inception_agent import build_inception_agent
-from app.agents.supervisor_agent import build_supervisor_agent
 from app.hooks.logging_hook import ToolCallLoggingHook
 from app.hooks.token_hook import TokenCountingHook
 from app.observability.logger import StructuredLogger
 from app.observability.metrics import CloudWatchMetrics
 
 DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers (no class needed)
+# ---------------------------------------------------------------------------
+
+def _print_stage_start(stage: str) -> None:
+    """Print a stage-starting indicator."""
+    try:
+        from rich.console import Console
+        Console().print(f"\n[bold cyan]▶  Running stage:[/bold cyan] [yellow]{stage}[/yellow]")
+    except ImportError:
+        print(f"\n▶  Running stage: {stage}", flush=True)
+
+
+def _print_skip(stage: str) -> None:
+    """Print a stage-skipped indicator."""
+    try:
+        from rich.console import Console
+        Console().print(f"  [dim]⏭  Already complete — skipping:[/dim] [dim]{stage}[/dim]")
+    except ImportError:
+        print(f"  ⏭  Skipping (already complete): {stage}", flush=True)
+
+
+def _request_approval_python(stage: str, summary: str, target_repo: str = "") -> bool:
+    """
+    Python-level approval gate — blocks stdin until the user responds.
+    If a requirement-verification-questions.md file exists, displays questions
+    interactively and collects answers before asking for approval.
+    Returns True if approved, False if rejected.
+    """
+    import signal
+    from app.skills.interactive_questions import run_interactive_questions
+
+    # Check for a questions file that needs answering.
+    questions_file = None
+    if target_repo:
+        q_path = (
+            Path(target_repo)
+            / "aidlc-docs"
+            / "inception"
+            / "requirements"
+            / "requirement-verification-questions.md"
+        )
+        if q_path.exists():
+            questions_file = q_path
+
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.markdown import Markdown
+        console = Console()
+
+        short = summary[:400] + ("..." if len(summary) > 400 else "")
+        console.print(
+            Panel(
+                Markdown(short),
+                title=f"[bold green]✅  Stage complete: {stage}[/bold green]",
+                border_style="green",
+                padding=(1, 2),
+            )
+        )
+    except ImportError:
+        print(f"\n✅  Stage complete: {stage}", flush=True)
+
+    # Show interactive questions ONLY for requirements-analysis stage.
+    # All other stages skip the questions panel.
+    if questions_file and stage == "requirements-analysis":
+        completed = run_interactive_questions(questions_file)
+        if not completed:
+            return False  # User aborted
+
+    try:
+        from rich.console import Console
+        Console().print(
+            "\n[bold]Press [green]Enter[/green] to continue, "
+            "or type feedback to request changes:[/bold]"
+        )
+    except ImportError:
+        print("\nPress Enter to continue (or type feedback):", flush=True)
+
+    def _timeout(signum: int, frame: object) -> None:
+        raise TimeoutError()
+
+    old = signal.signal(signal.SIGALRM, _timeout)
+    signal.alarm(300)
+    try:
+        response = input().strip().lower()
+    except TimeoutError:
+        response = "approve"
+    except EOFError:
+        response = "approve"
+    except KeyboardInterrupt:
+        print()
+        response = "approve"
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+    return response in ("approve", "yes", "continue", "y", "ok", "", "skip")
+
+
 # Resolve rules path relative to the workspace root (parent of ai-dlc-agent/).
 # __file__ = .../ai-dlc-agent/app/workflow.py
 # .parent       = .../ai-dlc-agent/app/
@@ -161,39 +262,109 @@ class SupervisorOrchestrator:
                 rules_base_path=self.rules_base_path,
             )
 
-            # Build supervisor with sub-agents as tools.
-            supervisor_agent = build_supervisor_agent(
-                model_id=self.model_id,
-                inception_agent=inception_agent,
-                construction_agent=construction_agent,
-                shared_state=self.shared_state,
-                hooks=hooks,
-            )
+            # --- INCEPTION PHASE ---
+            # Run one stage at a time. Python controls the approval gate between stages.
+            inception_start = time.monotonic()
+            inception_stages = [
+                "workspace-detection",
+                "reverse-engineering",
+                "requirements-analysis",
+                "user-stories",
+                "workflow-planning",
+                "application-design",
+                "units-generation",
+            ]
 
-            # Invoke the supervisor.
-            supervisor_start = time.monotonic()
-            supervisor_prompt = (
-                f"Execute the full AI-DLC workflow for the following:\n\n"
-                f"Target repository: {target_repo}\n"
-                f"User story: {user_story}\n\n"
-                f"Start by checking {target_repo}/aidlc-docs/aidlc-state.md for any "
-                f"previous session state, then proceed with the workflow."
-            )
+            # Determine which stages are already complete.
+            completed = self._get_completed_stages(abs_target_repo)
 
-            supervisor_result = supervisor_agent(supervisor_prompt)
-            supervisor_duration_ms = (time.monotonic() - supervisor_start) * 1000
+            for stage in inception_stages:
+                if stage in completed:
+                    _print_skip(stage)
+                    continue
 
-            supervisor_output = str(supervisor_result)
-            self._logger.log_agent_invocation(
-                agent_name="supervisor_agent",
-                input_len=len(supervisor_prompt),
-                output_len=len(supervisor_output),
-                duration_ms=supervisor_duration_ms,
-            )
+                _print_stage_start(stage)
+                stage_result = inception_agent(
+                    f"Execute the '{stage}' stage for:\n"
+                    f"Target repository: {abs_target_repo}\n"
+                    f"User story: {user_story}\n\n"
+                    f"Execute ONLY this single stage. Write all artifacts using "
+                    f"write_aidlc_artifact. Call update_workflow_state when done. "
+                    f"Do NOT call request_approval — the orchestrator handles approval."
+                )
 
-            # Update shared state with supervisor output.
+                # Python-level approval gate — reliable stdin blocking.
+                approved = _request_approval_python(stage, str(stage_result), abs_target_repo)
+                if not approved:
+                    self._logger.log({"type": "stage_rejected", "stage": stage,
+                                      "timestamp": datetime.now(timezone.utc).isoformat()})
+                    break
+
+                # Check if workflow-planning says to skip remaining stages.
+                if stage == "workflow-planning":
+                    completed = self._get_completed_stages(abs_target_repo)
+
+            inception_duration_ms = (time.monotonic() - inception_start) * 1000
             self.shared_state["inception"]["status"] = "complete"
+            self.shared_state["inception"]["duration_ms"] = round(inception_duration_ms, 2)
+            self._checkpoint_state()
+
+            # --- CONSTRUCTION PHASE ---
+            construction_start = time.monotonic()
+            construction_stages = [
+                "functional-design",
+                "nfr-requirements",
+                "nfr-design",
+                "infrastructure-design",
+                "code-generation",
+                "build-and-test",
+            ]
+
+            completed = self._get_completed_stages(abs_target_repo)
+
+            for stage in construction_stages:
+                if stage in completed:
+                    _print_skip(stage)
+                    continue
+
+                _print_stage_start(stage)
+                stage_result = construction_agent(
+                    f"Execute the '{stage}' stage for:\n"
+                    f"Target repository: {abs_target_repo}\n"
+                    f"User story: {user_story}\n\n"
+                    f"Execute ONLY this single stage. Write all artifacts using "
+                    f"write_aidlc_artifact. Write source code using write_source_file. "
+                    f"Call update_workflow_state when done. "
+                    f"Do NOT call request_approval — the orchestrator handles approval."
+                )
+
+                approved = _request_approval_python(stage, str(stage_result), abs_target_repo)
+                if not approved:
+                    self._logger.log({"type": "stage_rejected", "stage": stage,
+                                      "timestamp": datetime.now(timezone.utc).isoformat()})
+                    break
+
+            construction_duration_ms = (time.monotonic() - construction_start) * 1000
             self.shared_state["construction"]["status"] = "complete"
+            self.shared_state["construction"]["duration_ms"] = round(construction_duration_ms, 2)
+            self._checkpoint_state()
+
+            # Collect token usage from both agents.
+            total_input = 0
+            total_output = 0
+            for agent in (inception_agent, construction_agent):
+                try:
+                    usage = agent.event_loop_metrics.accumulated_usage
+                    total_input += int(usage.get("inputTokens", 0))
+                    total_output += int(usage.get("outputTokens", 0))
+                except Exception:
+                    pass
+            if total_input == 0 and total_output == 0:
+                total_input = self._token_hook.input_tokens
+                total_output = self._token_hook.output_tokens
+            self.shared_state["session_metrics"]["input_tokens"] = total_input
+            self.shared_state["session_metrics"]["output_tokens"] = total_output
+            self.shared_state["session_metrics"]["total_tokens"] = total_input + total_output
 
         except Exception as exc:
             self._logger.log({
@@ -242,6 +413,22 @@ class SupervisorOrchestrator:
             pass
 
         return None
+
+    def _get_completed_stages(self, target_repo: str) -> list[str]:
+        """Read completed stages from aidlc-state.md."""
+        import re
+        state_path = Path(target_repo) / "aidlc-docs" / "aidlc-state.md"
+        if not state_path.exists():
+            return []
+        try:
+            text = state_path.read_text(encoding="utf-8")
+            match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
+            if match:
+                state = json.loads(match.group(1))
+                return state.get("completed_stages", [])
+        except (OSError, json.JSONDecodeError):
+            pass
+        return []
 
     def _get_mcp_tools(self) -> list:
         """
@@ -294,15 +481,20 @@ class SupervisorOrchestrator:
         total_duration_ms: float = 0.0,
     ) -> dict[str, Any]:
         """Assemble the consolidated result dictionary."""
-        self.shared_state["session_metrics"]["total_tokens"] = self._token_hook.total_tokens
-        self.shared_state["session_metrics"]["total_duration_ms"] = round(total_duration_ms, 2)
+        # Use already-populated token counts if available, otherwise fall back to hook.
+        metrics = self.shared_state["session_metrics"]
+        if metrics.get("total_tokens", 0) == 0:
+            metrics["total_tokens"] = self._token_hook.total_tokens
+            metrics["input_tokens"] = self._token_hook.input_tokens
+            metrics["output_tokens"] = self._token_hook.output_tokens
+        metrics["total_duration_ms"] = round(total_duration_ms, 2)
 
         result: dict[str, Any] = {
             "target_repo": self.shared_state.get("target_repo", ""),
             "user_story": self.shared_state.get("user_story", ""),
             "inception": self.shared_state.get("inception", {}),
             "construction": self.shared_state.get("construction", {}),
-            "session_metrics": self.shared_state["session_metrics"],
+            "session_metrics": metrics,
         }
         if error:
             result["error"] = error

@@ -79,8 +79,8 @@ def main() -> None:
     parser.add_argument(
         "--model-id",
         "-m",
-        default=DEFAULT_MODEL_ID,
-        help=f"Bedrock model ID (default: {DEFAULT_MODEL_ID})",
+        default=os.environ.get("MODEL_ID", DEFAULT_MODEL_ID),
+        help=f"Bedrock model ID (default: {DEFAULT_MODEL_ID}, or MODEL_ID env var)",
     )
     parser.add_argument(
         "--dry-run",
@@ -107,6 +107,21 @@ def main() -> None:
     orchestrator = SupervisorOrchestrator(model_id=args.model_id)
 
     try:
+        from rich.console import Console
+        from rich.panel import Panel
+        Console().print(
+            Panel(
+                f"[bold]Repo:[/bold]  {args.repo}\n"
+                f"[bold]Story:[/bold] {args.story}\n"
+                f"[bold]Model:[/bold] {args.model_id}",
+                title="[bold cyan]🚀  AI-DLC Agent starting...[/bold cyan]",
+                border_style="cyan",
+            )
+        )
+    except ImportError:
+        print(f"Starting AI-DLC workflow for: {args.repo}")
+
+    try:
         result = orchestrator.run(
             target_repo=args.repo,
             user_story=args.story,
@@ -131,12 +146,29 @@ def main() -> None:
                 )
             )
         else:
+            m = result.get("session_metrics", {})
+            total = m.get("total_tokens", 0)
+            inp = m.get("input_tokens", 0)
+            out = m.get("output_tokens", 0)
+            duration_s = m.get("total_duration_ms", 0) / 1000
+
+            # Estimate cost: Claude Sonnet 4.5 pricing (approximate)
+            # $3 / 1M input tokens, $15 / 1M output tokens
+            cost_usd = (inp / 1_000_000 * 3.0) + (out / 1_000_000 * 15.0)
+
+            token_line = (
+                f"[bold]{total:,}[/bold] total  "
+                f"([cyan]{inp:,}[/cyan] in + [yellow]{out:,}[/yellow] out)"
+            )
+            if cost_usd > 0:
+                token_line += f"  ≈ [dim]${cost_usd:.4f}[/dim]"
+
             console.print(
                 Panel(
-                    "[green]Workflow completed successfully.[/green]\n"
-                    f"Target repo: [bold]{result.get('target_repo', '')}[/bold]\n"
-                    f"Tokens used: [bold]{result.get('session_metrics', {}).get('total_tokens', 0)}[/bold]\n"
-                    f"Duration: [bold]{result.get('session_metrics', {}).get('total_duration_ms', 0):.0f}ms[/bold]",
+                    "[green]Workflow completed successfully.[/green]\n\n"
+                    f"[bold]Target repo:[/bold] {result.get('target_repo', '')}\n"
+                    f"[bold]Tokens:[/bold]      {token_line}\n"
+                    f"[bold]Duration:[/bold]    [bold]{duration_s:.1f}s[/bold]",
                     title="[bold green]✅  AI-DLC Workflow Complete[/bold green]",
                     border_style="green",
                 )

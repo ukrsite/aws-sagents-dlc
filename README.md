@@ -25,7 +25,19 @@ export AWS_SECRET_ACCESS_KEY=your_secret
 
 python -m app.main \
   --repo kiro-sandbox/services/java-api \
-  --story "As a user, I want to reset my password"
+  --story "As an admin, I want to view a paginated list of all users"
+
+python -m app.main \
+  --repo kiro-sandbox/services/some-other-service \
+  --story "As a user, I want to update my profile"
+
+rm -rf kiro-sandbox/services/java-api/aidlc-docs/
+
+python -m app.main \
+  --repo kiro-sandbox/services/java-api \
+  --story "As an admin, I want to view a paginated list of all users"
+
+
 ```
 
 See [`ai-dlc-agent/README.md`](ai-dlc-agent/README.md) for full setup and usage instructions.

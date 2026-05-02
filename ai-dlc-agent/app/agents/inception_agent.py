@@ -46,18 +46,27 @@ def build_inception_agent(
     from app.skills.update_workflow_state import update_workflow_state
     from app.skills.scan_directory import scan_directory
     from app.skills.request_approval import request_approval
+    from app.skills.write_aidlc_artifact import write_aidlc_artifact
     from strands_tools import file_read
 
     system_prompt = _build_inception_system_prompt(rules_base_path, shared_state)
-    model = BedrockModel(model_id=model_id)
+    model = BedrockModel(
+        model_id=model_id,
+        boto_client_config=__import__("botocore.config", fromlist=["Config"]).Config(
+            read_timeout=300,
+            connect_timeout=30,
+            retries={"max_attempts": 3, "mode": "adaptive"},
+        ),
+    )
 
     return Agent(
         name="inception_agent",
         description="Handles all AI-DLC Inception phase stages: Workspace Detection, Reverse Engineering, Requirements Analysis, User Stories, Workflow Planning, Application Design, and Units Generation.",
         model=model,
         system_prompt=system_prompt,
-        tools=[load_rule_file, update_workflow_state, scan_directory, request_approval, file_read, *mcp_tools],
+        tools=[load_rule_file, update_workflow_state, scan_directory, request_approval, write_aidlc_artifact, file_read, *mcp_tools],
         hooks=hooks,
+        callback_handler=None,  # suppress streaming LLM output to stdout
     )
 
 
@@ -65,8 +74,10 @@ def _build_inception_system_prompt(
     rules_base_path: str,
     shared_state: dict[str, Any],
 ) -> str:
-    """Load inception rule files and build the full system prompt."""
-    rules_content = _load_rules(rules_base_path, "inception")
+    """Build the inception agent system prompt — load only common rules, not per-stage rules."""
+    # Load only the common rules (process overview, terminology) — NOT the per-stage rules.
+    # Per-stage rules are loaded on-demand via load_rule_file() during execution.
+    rules_content = _load_rules(rules_base_path, "common")
     target_repo = shared_state.get("target_repo", "<target_repo>")
     user_story = shared_state.get("user_story", "<user_story>")
 
@@ -95,6 +106,10 @@ All planning artifacts MUST be written to: {target_repo}/aidlc-docs/inception/
 - `load_rule_file(stage_name)` — reads the detailed rules for a stage. If it fails, proceed anyway.
 - `scan_directory(path, recursive=False)` — lists files/dirs at a path. Use this to explore the repo.
 - `file_read(path)` — reads a single file's content.
+- `write_aidlc_artifact(target_repo, relative_path, content)` — **writes a planning artifact directly
+  to `{target_repo}/aidlc-docs/{{relative_path}}`**. Use this to save every artifact you produce.
+  You do NOT need permission to call this — write artifacts immediately as you produce them.
+  Example: `write_aidlc_artifact(target_repo="{target_repo}", relative_path="inception/reverse-engineering/architecture.md", content="...")`
 - `update_workflow_state(target_repo, stage_name, status)` — updates aidlc-state.md and audit.md.
 - `request_approval(stage_name, summary)` — **MANDATORY after each stage** — pauses execution and waits for the user to type "approve" before you continue. You MUST call this tool; do NOT just print text and assume approval.
 
@@ -103,7 +118,14 @@ All planning artifacts MUST be written to: {target_repo}/aidlc-docs/inception/
 Execute in order. Skip conditional ones if not applicable:
 1. **workspace-detection** (ALWAYS) — scan {target_repo} with scan_directory; determine Greenfield/Brownfield
 2. **reverse-engineering** (CONDITIONAL — Brownfield only) — read key source files to understand existing code
-3. **requirements-analysis** (ALWAYS) — analyze the user story and produce requirements.md
+3. **requirements-analysis** (ALWAYS) — analyze the user story and produce requirements.md.
+   When generating clarifying questions, write them to
+   `inception/requirements/requirement-verification-questions.md`.
+   **IMPORTANT**: Generate at most 5 high-level questions. Focus on the most critical
+   unknowns only (e.g. auth approach, data model, API style). Do NOT ask about logging,
+   monitoring, edge cases, or future considerations — those are implementation details.
+   Each question MUST have 3-4 lettered options (A, B, C, D) so the user can answer
+   with a single letter. Keep question titles short (3-5 words).
 4. **user-stories** (CONDITIONAL) — create stories.md and personas.md if needed
 5. **workflow-planning** (ALWAYS) — produce execution-plan.md
 6. **application-design** (CONDITIONAL) — produce component design artifacts
@@ -111,8 +133,12 @@ Execute in order. Skip conditional ones if not applicable:
 
 ## AFTER EACH STAGE
 
-1. Call `update_workflow_state(target_repo="{target_repo}", stage_name="<stage>", status="complete")`
-2. Write the artifact to `{target_repo}/aidlc-docs/inception/<stage>/` using write_aidlc_artifact or file_read
+1. Write all artifacts using `write_aidlc_artifact` — do this immediately, no permission needed.
+   Example paths:
+   - `inception/reverse-engineering/architecture.md`
+   - `inception/requirements/requirements.md`
+   - `inception/plans/execution-plan.md`
+2. Call `update_workflow_state(target_repo="{target_repo}", stage_name="<stage>", status="complete")`
 3. Call `request_approval(stage_name="<stage>", summary="<2-5 bullet summary of what was produced>")`
    — this PAUSES execution and waits for the user to type "approve"
    — if the user types anything other than "approve"/"yes"/"continue", treat it as feedback and revise

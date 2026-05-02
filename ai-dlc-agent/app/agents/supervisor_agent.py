@@ -87,6 +87,7 @@ def build_supervisor_agent(
             ),
         ],
         hooks=hooks,
+        callback_handler=None,  # suppress streaming LLM output to stdout
     )
 
 

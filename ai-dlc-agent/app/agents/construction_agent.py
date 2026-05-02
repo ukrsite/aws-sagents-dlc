@@ -144,7 +144,14 @@ def build_construction_agent(
     all_hooks = list(hooks) + [write_interrupt_hook]
 
     system_prompt = _build_construction_system_prompt(rules_base_path, shared_state)
-    model = BedrockModel(model_id=model_id)
+    model = BedrockModel(
+        model_id=model_id,
+        boto_client_config=__import__("botocore.config", fromlist=["Config"]).Config(
+            read_timeout=300,
+            connect_timeout=30,
+            retries={"max_attempts": 3, "mode": "adaptive"},
+        ),
+    )
 
     return Agent(
         name="construction_agent",
@@ -162,6 +169,7 @@ def build_construction_agent(
             *mcp_tools,
         ],
         hooks=all_hooks,
+        callback_handler=None,  # suppress streaming LLM output to stdout
     )
 
 
@@ -169,8 +177,10 @@ def _build_construction_system_prompt(
     rules_base_path: str,
     shared_state: dict[str, Any],
 ) -> str:
-    """Load construction rule files and build the full system prompt."""
-    rules_content = _load_rules(rules_base_path, "construction")
+    """Build the construction agent system prompt — load only common rules, not per-stage rules."""
+    # Load only the common rules — NOT the per-stage rules.
+    # Per-stage rules are loaded on-demand via load_rule_file() during execution.
+    rules_content = _load_rules(rules_base_path, "common")
     target_repo = shared_state.get("target_repo", "<target_repo>")
 
     steering = f"""
@@ -210,7 +220,12 @@ STEERING CONSTRAINTS:
    {target_repo}/aidlc-docs/construction/ using the write_aidlc_artifact tool.
    NEVER write planning artifacts to the source tree.
 
-4. After completing each stage:
+4. **DO NOT generate clarifying questions.** The requirements have already been gathered
+   in the Inception phase. Proceed directly with design and implementation based on the
+   existing requirements and reverse engineering artifacts. If something is unclear,
+   make a reasonable assumption and document it in the artifact.
+
+5. After completing each stage:
    a. Call update_workflow_state(target_repo="{target_repo}", stage_name="<stage>", status="complete")
    b. Call request_approval(stage_name="<stage>", summary="<2-5 bullet summary>")
       — this PAUSES execution and waits for the user to type "approve"

@@ -132,6 +132,14 @@ def update_workflow_state(target_repo: str, stage_name: str, status: str) -> str
     _write_state(state_path, state)
     _append_audit(audit_path, stage_name, status)
 
+    # Print stage progress indicator.
+    icon = "✅" if status in ("complete", "completed") else "⏭️" if status == "skipped" else "❌"
+    try:
+        from rich.console import Console
+        Console().print(f"\n[bold]{icon}  Stage:[/bold] [yellow]{stage_name}[/yellow] → [dim]{status}[/dim]")
+    except ImportError:
+        print(f"\n{icon}  Stage: {stage_name} → {status}", flush=True)
+
     # Return the four required fields as a JSON string.
     result = {
         "last_completed_stage": state["last_completed_stage"],
