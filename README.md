@@ -23,15 +23,15 @@ export AWS_REGION=us-east-1
 export AWS_ACCESS_KEY_ID=your_key
 export AWS_SECRET_ACCESS_KEY=your_secret
 
+rm -rf kiro-sandbox/services/java-api/aidlc-docs/
+
 python -m app.main \
   --repo kiro-sandbox/services/java-api \
   --story "As an admin, I want to view a paginated list of all users"
 
 python -m app.main \
-  --repo kiro-sandbox/services/some-other-service \
+  --repo kiro-sandbox/services/java-api \
   --story "As a user, I want to update my profile"
-
-rm -rf kiro-sandbox/services/java-api/aidlc-docs/
 
 python -m app.main \
   --repo kiro-sandbox/services/java-api \

@@ -28,7 +28,7 @@ for _noisy in ("boto3", "botocore", "urllib3", "s3transfer"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 from app.errors import ConfigurationError
-from app.workflow import DEFAULT_MODEL_ID, SupervisorOrchestrator
+from app.workflow import DEFAULT_MODEL_ID, WorkflowOrchestrator
 
 
 def validate_env() -> None:
@@ -104,7 +104,7 @@ def main() -> None:
         print(f"   User story  : {story_preview}")
         sys.exit(0)
 
-    orchestrator = SupervisorOrchestrator(model_id=args.model_id)
+    orchestrator = WorkflowOrchestrator(model_id=args.model_id)
 
     try:
         from rich.console import Console

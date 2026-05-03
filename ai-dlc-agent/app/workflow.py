@@ -1,4 +1,4 @@
-"""SupervisorOrchestrator: top-level workflow entry point for the AI-DLC agent."""
+"""WorkflowOrchestrator: top-level workflow entry point for the AI-DLC agent."""
 
 from __future__ import annotations
 
@@ -42,6 +42,81 @@ def _print_skip(stage: str) -> None:
         print(f"  ⏭  Skipping (already complete): {stage}", flush=True)
 
 
+def _find_questions_file(target_repo: str) -> "Path | None":
+    """Find the requirement-verification-questions.md file, handling path variations."""
+    for candidate in [
+        Path(target_repo) / "aidlc-docs" / "inception" / "requirements" / "requirement-verification-questions.md",
+        Path(target_repo) / "aidlc-docs" / "aidlc-docs" / "inception" / "requirements" / "requirement-verification-questions.md",
+    ]:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _run_stage_with_retry(
+    agent: Any,
+    stage: str,
+    abs_target_repo: str,
+    user_story: str,
+    logger: Any,
+    is_construction: bool = False,
+    max_retries: int = 2,
+    custom_prompt: str | None = None,
+) -> Any:
+    """
+    Run a single stage with retry on transient Bedrock errors.
+    Retries on EventStreamError and ReadTimeoutError up to max_retries times.
+    """
+    import botocore.exceptions
+
+    extra = (
+        "Write source code using write_source_file. "
+        if is_construction else ""
+    )
+    prompt = custom_prompt or (
+        f"Execute the '{stage}' stage for:\n"
+        f"Target repository: {abs_target_repo}\n"
+        f"User story: {user_story}\n\n"
+        f"Execute ONLY this single stage. Write all artifacts using "
+        f"write_aidlc_artifact. {extra}"
+        f"Call update_workflow_state when done. "
+        f"Do NOT call request_approval — the orchestrator handles approval."
+    )
+
+    last_exc: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            return agent(prompt)
+        except (botocore.exceptions.EventStreamError,
+                botocore.exceptions.ReadTimeoutError,
+                Exception) as exc:
+            err_str = str(exc)
+            # Only retry on known transient errors
+            transient = any(kw in err_str for kw in (
+                "modelStreamErrorException",
+                "Read timed out",
+                "ThrottlingException",
+                "ServiceUnavailableException",
+            ))
+            if transient and attempt < max_retries:
+                wait = attempt * 5
+                try:
+                    from rich.console import Console
+                    Console().print(
+                        f"  [yellow]⚠  Transient error on attempt {attempt}/{max_retries}, "
+                        f"retrying in {wait}s...[/yellow]"
+                    )
+                except ImportError:
+                    print(f"  ⚠  Retrying in {wait}s...", flush=True)
+                import time as _time
+                _time.sleep(wait)
+                last_exc = exc
+                continue
+            raise
+
+    raise last_exc  # type: ignore
+
+
 def _request_approval_python(stage: str, summary: str, target_repo: str = "") -> bool:
     """
     Python-level approval gate — blocks stdin until the user responds.
@@ -52,19 +127,7 @@ def _request_approval_python(stage: str, summary: str, target_repo: str = "") ->
     import signal
     from app.skills.interactive_questions import run_interactive_questions
 
-    # Check for a questions file that needs answering.
-    questions_file = None
-    if target_repo:
-        q_path = (
-            Path(target_repo)
-            / "aidlc-docs"
-            / "inception"
-            / "requirements"
-            / "requirement-verification-questions.md"
-        )
-        if q_path.exists():
-            questions_file = q_path
-
+    questions_file = _find_questions_file(target_repo) if target_repo else None
     try:
         from rich.console import Console
         from rich.panel import Panel
@@ -129,7 +192,7 @@ _WORKSPACE_ROOT = Path(__file__).parent.parent.parent.resolve()
 RULES_BASE_PATH = str(_WORKSPACE_ROOT / "kiro-sandbox/.kiro/aws-aidlc-rule-details")
 
 
-class SupervisorOrchestrator:
+class WorkflowOrchestrator:
     """
     Top-level orchestrator for the AI-DLC Strands Agent.
 
@@ -284,14 +347,54 @@ class SupervisorOrchestrator:
                     continue
 
                 _print_stage_start(stage)
-                stage_result = inception_agent(
-                    f"Execute the '{stage}' stage for:\n"
-                    f"Target repository: {abs_target_repo}\n"
-                    f"User story: {user_story}\n\n"
-                    f"Execute ONLY this single stage. Write all artifacts using "
-                    f"write_aidlc_artifact. Call update_workflow_state when done. "
-                    f"Do NOT call request_approval — the orchestrator handles approval."
+                stage_result = _run_stage_with_retry(
+                    agent=inception_agent,
+                    stage=stage,
+                    abs_target_repo=abs_target_repo,
+                    user_story=user_story,
+                    logger=self._logger,
                 )
+
+                # After requirements-analysis, ensure the questions file was written.
+                # If the agent skipped it, ask it to generate the file explicitly.
+                if stage == "requirements-analysis":
+                    q_path = _find_questions_file(abs_target_repo)
+                    if not q_path:
+                        try:
+                            from rich.console import Console
+                            Console().print(
+                                "  [yellow]⚠  Questions file not found — requesting generation...[/yellow]"
+                            )
+                        except ImportError:
+                            print("  ⚠  Requesting questions file generation...", flush=True)
+                        _run_stage_with_retry(
+                            agent=inception_agent,
+                            stage="requirements-analysis-questions",
+                            abs_target_repo=abs_target_repo,
+                            user_story=user_story,
+                            logger=self._logger,
+                            custom_prompt=(
+                                f"Generate the requirement-verification-questions.md file for:\n"
+                                f"Target repository: {abs_target_repo}\n"
+                                f"User story: {user_story}\n\n"
+                                f"Read the existing requirements from "
+                                f"{abs_target_repo}/aidlc-docs/inception/requirements/requirements.md "
+                                f"and generate 5-8 clarifying questions with lettered options (A, B, C, D).\n\n"
+                                f"IMPORTANT: The FIRST question must always be about implementation complexity:\n"
+                                f"### Question 1\n"
+                                f"What is the target implementation complexity?\n"
+                                f"A) PoC / MVP — simplest possible implementation, minimal dependencies\n"
+                                f"B) Standard — production-ready but straightforward\n"
+                                f"C) Enterprise — full security, scalability, observability, compliance\n"
+                                f"D) Other (describe)\n"
+                                f"[Answer]: \n\n"
+                                f"The remaining questions should adapt based on the user story context.\n"
+                                f"Write the file to: inception/requirements/requirement-verification-questions.md\n"
+                                f"Use write_aidlc_artifact with target_repo='{abs_target_repo}' and "
+                                f"relative_path='inception/requirements/requirement-verification-questions.md'.\n"
+                                f"Do NOT call update_workflow_state — just write the questions file."
+                            ),
+                        )
 
                 # Python-level approval gate — reliable stdin blocking.
                 approved = _request_approval_python(stage, str(stage_result), abs_target_repo)
@@ -328,14 +431,13 @@ class SupervisorOrchestrator:
                     continue
 
                 _print_stage_start(stage)
-                stage_result = construction_agent(
-                    f"Execute the '{stage}' stage for:\n"
-                    f"Target repository: {abs_target_repo}\n"
-                    f"User story: {user_story}\n\n"
-                    f"Execute ONLY this single stage. Write all artifacts using "
-                    f"write_aidlc_artifact. Write source code using write_source_file. "
-                    f"Call update_workflow_state when done. "
-                    f"Do NOT call request_approval — the orchestrator handles approval."
+                stage_result = _run_stage_with_retry(
+                    agent=construction_agent,
+                    stage=stage,
+                    abs_target_repo=abs_target_repo,
+                    user_story=user_story,
+                    logger=self._logger,
+                    is_construction=True,
                 )
 
                 approved = _request_approval_python(stage, str(stage_result), abs_target_repo)

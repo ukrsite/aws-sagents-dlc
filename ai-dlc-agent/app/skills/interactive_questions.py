@@ -27,7 +27,16 @@ class Question:
 def parse_questions(content: str) -> list[Question]:
     """Parse the questions markdown into structured Question objects."""
     questions: list[Question] = []
-    blocks = re.split(r"\n---\n", content)
+
+    # Split on "---" separators OR on "### Question N" / "### N.N" headings.
+    # This handles both formats the agent may generate.
+    raw_blocks = re.split(r"\n---\n", content)
+
+    # If no --- separators found, try splitting on ### headings
+    if len(raw_blocks) <= 1:
+        raw_blocks = re.split(r"(?=\n###\s)", content)
+
+    blocks = raw_blocks
 
     for block in blocks:
         block = block.strip()
@@ -36,12 +45,18 @@ def parse_questions(content: str) -> list[Question]:
 
         heading_match = re.search(r"###\s+([\d.]+)\s+(.+)", block)
         if not heading_match:
-            heading_match = re.search(r"##\s+\d+\.\s+(.+)", block)
+            # Try "### Question N" or "### N. Title" format
+            heading_match = re.search(r"###\s+(?:Question\s+)?(\d+)\.?\s*(.*)", block, re.IGNORECASE)
             if heading_match:
-                number = str(len(questions) + 1)
-                title = heading_match.group(1).strip()
+                number = heading_match.group(1).strip()
+                title = heading_match.group(2).strip() or f"Question {number}"
             else:
-                continue
+                heading_match = re.search(r"##\s+\d+\.\s+(.+)", block)
+                if heading_match:
+                    number = str(len(questions) + 1)
+                    title = heading_match.group(1).strip()
+                else:
+                    continue
         else:
             number = heading_match.group(1).strip()
             title = heading_match.group(2).strip()
@@ -53,8 +68,9 @@ def parse_questions(content: str) -> list[Question]:
         question_text = q_match.group(1).strip() if q_match else title
 
         options = []
+        # Match both "- A) text" and "A) text" formats
         for opt_match in re.finditer(
-            r"-\s+([A-X])\)\s+(.+?)(?=\n-\s+[A-X]\)|\[Answer\]|\Z)",
+            r"(?:^|\n)-?\s*([A-X])\)\s+(.+?)(?=\n-?\s*[A-X]\)|\[Answer\]|\Z)",
             block, re.DOTALL
         ):
             letter = opt_match.group(1)

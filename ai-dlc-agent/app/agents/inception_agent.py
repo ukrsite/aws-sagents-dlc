@@ -121,9 +121,15 @@ Execute in order. Skip conditional ones if not applicable:
 3. **requirements-analysis** (ALWAYS) — analyze the user story and produce requirements.md.
    When generating clarifying questions, write them to
    `inception/requirements/requirement-verification-questions.md`.
-   **IMPORTANT**: Generate at most 5 high-level questions. Focus on the most critical
-   unknowns only (e.g. auth approach, data model, API style). Do NOT ask about logging,
-   monitoring, edge cases, or future considerations — those are implementation details.
+   **IMPORTANT**: Generate at most 5 high-level questions. The FIRST question MUST always be:
+   "What is the target implementation complexity?" with options:
+   A) PoC/MVP — simplest possible, minimal dependencies
+   B) Standard — production-ready but straightforward
+   C) Enterprise — full security, scalability, observability, compliance
+   D) Other
+   The remaining 4 questions should focus on the most critical unknowns for the specific
+   user story (e.g. auth approach, data model, API style). Do NOT ask about logging,
+   monitoring, edge cases, or future considerations.
    Each question MUST have 3-4 lettered options (A, B, C, D) so the user can answer
    with a single letter. Keep question titles short (3-5 words).
 4. **user-stories** (CONDITIONAL) — create stories.md and personas.md if needed
@@ -134,10 +140,13 @@ Execute in order. Skip conditional ones if not applicable:
 ## AFTER EACH STAGE
 
 1. Write all artifacts using `write_aidlc_artifact` — do this immediately, no permission needed.
-   Example paths:
-   - `inception/reverse-engineering/architecture.md`
-   - `inception/requirements/requirements.md`
-   - `inception/plans/execution-plan.md`
+   The `relative_path` argument is relative to `{target_repo}/aidlc-docs/` — do NOT include
+   `aidlc-docs/` in the path. Correct examples:
+   - `inception/reverse-engineering/architecture.md`  ✅
+   - `inception/requirements/requirements.md`  ✅
+   - `inception/requirements/requirement-verification-questions.md`  ✅
+   - `inception/plans/execution-plan.md`  ✅
+   WRONG: `aidlc-docs/inception/requirements/requirements.md`  ❌ (do not include aidlc-docs/)
 2. Call `update_workflow_state(target_repo="{target_repo}", stage_name="<stage>", status="complete")`
 3. Call `request_approval(stage_name="<stage>", summary="<2-5 bullet summary of what was produced>")`
    — this PAUSES execution and waits for the user to type "approve"

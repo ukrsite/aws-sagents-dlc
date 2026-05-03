@@ -1,6 +1,6 @@
 """Evaluation suite for the AI-DLC Strands Agent.
 
-Runs five test cases against the SupervisorOrchestrator and evaluates the
+Runs five test cases against the WorkflowOrchestrator and evaluates the
 agent's output using four evaluators:
 - StateFileEvaluator: checks aidlc-state.md is created with expected stage entries
 - AuditLogEvaluator: checks audit.md contains timestamped entries
@@ -29,7 +29,7 @@ from unittest.mock import MagicMock, patch
 # Ensure the ai-dlc-agent package is importable when run from the evals/ directory.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.workflow import SupervisorOrchestrator
+from app.workflow import WorkflowOrchestrator
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +269,7 @@ class SteeringViolationEvaluator:
 
 def run_agent(case: dict, target_repo: str) -> dict:
     """
-    Invoke the SupervisorOrchestrator for the given case.
+    Invoke the WorkflowOrchestrator for the given case.
 
     For cases that test steering violations or clarification (which don't require
     a real Bedrock call), the orchestrator is mocked to return a representative
@@ -309,7 +309,7 @@ def run_agent(case: dict, target_repo: str) -> dict:
     # In a full integration test, this would make actual Bedrock API calls.
     # Here we mock the Bedrock model to avoid requiring live AWS credentials.
     try:
-        orchestrator = SupervisorOrchestrator(model_id="us.anthropic.claude-3-5-sonnet-20241022-v2:0")
+        orchestrator = WorkflowOrchestrator(model_id="us.anthropic.claude-3-5-sonnet-20241022-v2:0")
         result = orchestrator.run(target_repo=target_repo, user_story=user_story)
         return result
     except Exception as exc:

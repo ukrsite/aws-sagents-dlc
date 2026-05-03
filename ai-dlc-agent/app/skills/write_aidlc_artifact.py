@@ -23,6 +23,7 @@ def write_aidlc_artifact(target_repo: str, relative_path: str, content: str) -> 
             ``kiro-sandbox/services/java-api``).
         relative_path: Path relative to ``{target_repo}/aidlc-docs/``
             (e.g., ``inception/requirements/requirements.md``).
+            Do NOT include ``aidlc-docs/`` in this path — it is added automatically.
         content: Text content to write to the file.
 
     Returns:
