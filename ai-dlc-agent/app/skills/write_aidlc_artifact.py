@@ -37,6 +37,15 @@ def write_aidlc_artifact(target_repo: str, relative_path: str, content: str) -> 
     abs_repo = Path(target_repo).resolve()
     aidlc_docs_root = abs_repo / "aidlc-docs"
 
+    # Strip accidental "aidlc-docs/" prefix — the tool adds it automatically.
+    # Agents sometimes pass "aidlc-docs/inception/..." which would double-nest.
+    _rel = relative_path
+    for prefix in ("aidlc-docs/", "aidlc-docs\\"):
+        if _rel.startswith(prefix):
+            _rel = _rel[len(prefix):]
+            break
+    relative_path = _rel
+
     # Resolve the target path — this collapses any ".." components.
     target_path = (aidlc_docs_root / relative_path).resolve()
 
@@ -54,7 +63,12 @@ def write_aidlc_artifact(target_repo: str, relative_path: str, content: str) -> 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text(content, encoding="utf-8")
 
-    # Print progress line — filename only, no content.
+    # Track and print progress line — filename only, no content.
+    try:
+        from app.skills.stage_tracker import record
+        record("artifact", relative_path)
+    except Exception:
+        pass
     try:
         from rich.console import Console
         Console().print(f"  [dim]📄 artifact:[/dim] [cyan]{relative_path}[/cyan]")

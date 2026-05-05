@@ -42,6 +42,112 @@ def _print_skip(stage: str) -> None:
         print(f"  ⏭  Skipping (already complete): {stage}", flush=True)
 
 
+def _build_inception_context(target_repo: str) -> str:
+    """
+    Build a concise summary of inception artifacts to pass to construction stages.
+    Reads key files from aidlc-docs/inception/ and returns a compact summary.
+    Also includes the existing source tree structure for brownfield projects.
+    """
+    aidlc = Path(target_repo) / "aidlc-docs"
+    parts = []
+
+    # Detect existing source tree structure (critical for brownfield — correct package names).
+    src_root = Path(target_repo) / "src" / "main" / "java"
+    if src_root.exists():
+        java_files = sorted(src_root.rglob("*.java"))[:20]  # first 20 files
+        if java_files:
+            tree_lines = ["**Existing Java source tree (use these exact package paths):**"]
+            for f in java_files:
+                rel = f.relative_to(Path(target_repo))
+                tree_lines.append(f"- `{rel}`")
+            # Extract base package from first file path
+            first_rel = java_files[0].relative_to(src_root)
+            parts_path = first_rel.parts
+            if len(parts_path) >= 3:
+                base_pkg = ".".join(parts_path[:3])
+                tree_lines.append(f"\n**Base package: `{base_pkg}`** — all new classes MUST use this package.")
+            parts.append("\n".join(tree_lines))
+
+    # Key inception artifact files.
+    key_files = [
+        ("Requirements", aidlc / "inception" / "requirements" / "requirements.md"),
+        ("Execution Plan", aidlc / "inception" / "plans" / "execution-plan.md"),
+        ("Units of Work", aidlc / "inception" / "application-design" / "unit-of-work.md"),
+        ("Application Design", aidlc / "inception" / "application-design" / "components.md"),
+        ("User Stories", aidlc / "inception" / "user-stories" / "stories.md"),
+    ]
+
+    for label, path in key_files:
+        if path.exists():
+            content = path.read_text(encoding="utf-8")
+            truncated = content[:800] + ("..." if len(content) > 800 else "")
+            parts.append(f"### {label}\n{truncated}")
+
+    if not parts:
+        return "(No inception artifacts found — proceed with user story as the only input)"
+
+    return "\n\n".join(parts)
+
+
+def _show_artifact_menu(
+    written_files: list[tuple[str, str]],
+    target_repo: str,
+) -> None:
+    """Show a numbered menu to pick an artifact to view, then display its content."""
+    try:
+        from rich.console import Console
+        from rich.markdown import Markdown
+        from rich.panel import Panel
+        console = Console()
+
+        console.print("\n[bold cyan]Select artifact to view:[/bold cyan]")
+        for i, (ftype, fpath) in enumerate(written_files, 1):
+            icon = "📄" if ftype == "artifact" else "💻"
+            console.print(f"  [cyan]{i})[/cyan] {icon} {fpath}")
+        console.print("  [dim]Enter number (or press Enter to skip):[/dim] ", end="")
+
+        try:
+            choice = input().strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        if not choice.isdigit():
+            return
+        idx = int(choice) - 1
+        if not (0 <= idx < len(written_files)):
+            return
+
+        ftype, fpath = written_files[idx]
+        # Resolve full path.
+        if ftype == "artifact":
+            full_path = Path(target_repo) / "aidlc-docs" / fpath
+            # Also try without aidlc-docs prefix if already absolute.
+            if not full_path.exists():
+                full_path = Path(fpath) if Path(fpath).is_absolute() else Path(target_repo) / fpath
+        else:
+            full_path = Path(target_repo) / fpath
+            if not full_path.exists():
+                full_path = Path(fpath) if Path(fpath).is_absolute() else Path(target_repo) / fpath
+
+        if not full_path.exists():
+            console.print(f"[red]File not found: {full_path}[/red]")
+            return
+
+        content = full_path.read_text(encoding="utf-8")
+        # Show first 3000 chars to avoid flooding the terminal.
+        preview = content[:3000] + ("\n\n[dim]... (truncated)[/dim]" if len(content) > 3000 else "")
+        console.print(
+            Panel(
+                Markdown(preview),
+                title=f"[bold]{fpath}[/bold]",
+                border_style="cyan",
+                padding=(1, 2),
+            )
+        )
+    except ImportError:
+        print("rich not available — open the file in your editor to review.", flush=True)
+
+
 def _find_questions_file(target_repo: str) -> "Path | None":
     """Find the requirement-verification-questions.md file, handling path variations."""
     for candidate in [
@@ -86,6 +192,12 @@ def _run_stage_with_retry(
     last_exc: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
+            # Reset artifact tracker at the start of each attempt.
+            try:
+                from app.skills.stage_tracker import reset as _reset_tracker
+                _reset_tracker()
+            except Exception:
+                pass
             return agent(prompt)
         except (botocore.exceptions.EventStreamError,
                 botocore.exceptions.ReadTimeoutError,
@@ -128,6 +240,22 @@ def _request_approval_python(stage: str, summary: str, target_repo: str = "") ->
     from app.skills.interactive_questions import run_interactive_questions
 
     questions_file = _find_questions_file(target_repo) if target_repo else None
+
+    # Get files written during this stage.
+    try:
+        from app.skills.stage_tracker import get_written
+        written_files = get_written()
+    except Exception:
+        written_files = []
+
+    # Auto-skip approval if no artifacts were written (stage was skipped by agent).
+    if not written_files and stage not in ("requirements-analysis",):
+        try:
+            from rich.console import Console
+            Console().print(f"  [dim]⏭  No artifacts written — auto-skipping approval for: {stage}[/dim]")
+        except ImportError:
+            print(f"  ⏭  No artifacts — skipping: {stage}", flush=True)
+        return True
     try:
         from rich.console import Console
         from rich.panel import Panel
@@ -135,9 +263,18 @@ def _request_approval_python(stage: str, summary: str, target_repo: str = "") ->
         console = Console()
 
         short = summary[:400] + ("..." if len(summary) > 400 else "")
+
+        # Build artifact list for the panel.
+        artifact_lines = ""
+        if written_files:
+            artifact_lines = "\n\n**Artifacts written:**\n"
+            for ftype, fpath in written_files:
+                icon = "📄" if ftype == "artifact" else "💻"
+                artifact_lines += f"- {icon} `{fpath}`\n"
+
         console.print(
             Panel(
-                Markdown(short),
+                Markdown(short + artifact_lines),
                 title=f"[bold green]✅  Stage complete: {stage}[/bold green]",
                 border_style="green",
                 padding=(1, 2),
@@ -145,6 +282,8 @@ def _request_approval_python(stage: str, summary: str, target_repo: str = "") ->
         )
     except ImportError:
         print(f"\n✅  Stage complete: {stage}", flush=True)
+        for ftype, fpath in written_files:
+            print(f"  {'📄' if ftype == 'artifact' else '💻'} {fpath}", flush=True)
 
     # Show interactive questions ONLY for requirements-analysis stage.
     # All other stages skip the questions panel.
@@ -157,10 +296,11 @@ def _request_approval_python(stage: str, summary: str, target_repo: str = "") ->
         from rich.console import Console
         Console().print(
             "\n[bold]Press [green]Enter[/green] to continue, "
+            "type [cyan]v[/cyan] to view an artifact, "
             "or type feedback to request changes:[/bold]"
         )
     except ImportError:
-        print("\nPress Enter to continue (or type feedback):", flush=True)
+        print("\nPress Enter to continue (v=view artifact, or type feedback):", flush=True)
 
     def _timeout(signum: int, frame: object) -> None:
         raise TimeoutError()
@@ -168,19 +308,38 @@ def _request_approval_python(stage: str, summary: str, target_repo: str = "") ->
     old = signal.signal(signal.SIGALRM, _timeout)
     signal.alarm(300)
     try:
-        response = input().strip().lower()
+        response = input().strip()
     except TimeoutError:
-        response = "approve"
+        response = ""
     except EOFError:
-        response = "approve"
+        response = ""
     except KeyboardInterrupt:
         print()
-        response = "approve"
+        response = ""
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, old)
 
-    return response in ("approve", "yes", "continue", "y", "ok", "", "skip")
+    # Handle "v" or "view" — show artifact content then ask again.
+    if response.lower() in ("v", "view") and written_files:
+        _show_artifact_menu(written_files, target_repo)
+        # Ask again after viewing.
+        try:
+            from rich.console import Console
+            Console().print("\n[bold]Press [green]Enter[/green] to continue, or type feedback:[/bold]")
+        except ImportError:
+            print("Press Enter to continue:", flush=True)
+        old2 = signal.signal(signal.SIGALRM, _timeout)
+        signal.alarm(300)
+        try:
+            response = input().strip()
+        except (TimeoutError, EOFError, KeyboardInterrupt):
+            response = ""
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old2)
+
+    return response.lower() in ("approve", "yes", "continue", "y", "ok", "", "skip")
 
 
 # Resolve rules path relative to the workspace root (parent of ai-dlc-agent/).
@@ -189,7 +348,7 @@ def _request_approval_python(stage: str, summary: str, target_repo: str = "") ->
 # .parent.parent = .../ai-dlc-agent/
 # .parent.parent.parent = workspace root (aws-sagents-dlc/)
 _WORKSPACE_ROOT = Path(__file__).parent.parent.parent.resolve()
-RULES_BASE_PATH = str(_WORKSPACE_ROOT / "kiro-sandbox/.kiro/aws-aidlc-rule-details")
+RULES_BASE_PATH = str(_WORKSPACE_ROOT / ".kiro/aws-aidlc-rule-details")
 
 
 class WorkflowOrchestrator:
@@ -423,6 +582,9 @@ class WorkflowOrchestrator:
                 "build-and-test",
             ]
 
+            # Build inception context summary to pass to every construction stage.
+            inception_context = _build_inception_context(abs_target_repo)
+
             completed = self._get_completed_stages(abs_target_repo)
 
             for stage in construction_stages:
@@ -431,6 +593,17 @@ class WorkflowOrchestrator:
                     continue
 
                 _print_stage_start(stage)
+
+                # For code-generation, add explicit instruction to write source files.
+                code_gen_hint = ""
+                if stage == "code-generation":
+                    code_gen_hint = (
+                        "\n\nCRITICAL: You MUST write actual Java source code files using "
+                        "write_source_file. Do NOT skip code generation because of missing "
+                        "prerequisites — use the inception artifacts above as your design input. "
+                        "Write at minimum the main service class and controller for the feature."
+                    )
+
                 stage_result = _run_stage_with_retry(
                     agent=construction_agent,
                     stage=stage,
@@ -438,7 +611,55 @@ class WorkflowOrchestrator:
                     user_story=user_story,
                     logger=self._logger,
                     is_construction=True,
+                    custom_prompt=(
+                        f"Execute the '{stage}' stage for:\n"
+                        f"Target repository: {abs_target_repo}\n"
+                        f"User story: {user_story}\n\n"
+                        f"INCEPTION PHASE CONTEXT:\n{inception_context}\n\n"
+                        f"Execute ONLY this single stage. Write all planning artifacts using "
+                        f"write_aidlc_artifact. Write source code using write_source_file. "
+                        f"Call update_workflow_state when done. "
+                        f"Do NOT call request_approval — the orchestrator handles approval."
+                        f"{code_gen_hint}"
+                    ),
                 )
+
+                # After code-generation, verify source files were actually written.
+                if stage == "code-generation":
+                    from app.skills.stage_tracker import get_written
+                    source_files = [f for t, f in get_written() if t == "source"]
+                    if not source_files:
+                        try:
+                            from rich.console import Console
+                            Console().print(
+                                "  [yellow]⚠  No source files written — retrying code generation...[/yellow]"
+                            )
+                        except ImportError:
+                            print("  ⚠  No source files — retrying code generation...", flush=True)
+                        _run_stage_with_retry(
+                            agent=construction_agent,
+                            stage="code-generation-retry",
+                            abs_target_repo=abs_target_repo,
+                            user_story=user_story,
+                            logger=self._logger,
+                            is_construction=True,
+                            custom_prompt=(
+                                f"Generate Java source code for the user story: {user_story}\n"
+                                f"Target repository: {abs_target_repo}\n\n"
+                                f"INCEPTION CONTEXT:\n{inception_context}\n\n"
+                                f"You MUST write Java source files using write_source_file. "
+                                f"The existing source tree is shown in the inception context above — "
+                                f"use the EXACT same package structure and directory paths. "
+                                f"Do NOT create new packages like com.example — integrate into the existing ones.\n\n"
+                                f"At minimum, create:\n"
+                                f"1. A service class for the new feature\n"
+                                f"2. A controller class with REST endpoints\n"
+                                f"3. Any required DTOs or model updates\n\n"
+                                f"Use write_source_file with target_repo='{abs_target_repo}' and "
+                                f"relative_path matching the existing source tree structure shown above.\n"
+                                f"Do NOT call update_workflow_state or request_approval."
+                            ),
+                        )
 
                 approved = _request_approval_python(stage, str(stage_result), abs_target_repo)
                 if not approved:

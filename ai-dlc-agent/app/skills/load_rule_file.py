@@ -17,10 +17,14 @@ from app.retry import retry_with_backoff
 # .parent.parent.parent = .../ai-dlc-agent/
 # .parent.parent.parent.parent = workspace root (aws-sagents-dlc/)
 _WORKSPACE_ROOT = Path(__file__).parent.parent.parent.parent.resolve()
-RULES_BASE_PATH = _WORKSPACE_ROOT / "kiro-sandbox/.kiro/aws-aidlc-rule-details"
+RULES_BASE_PATH = _WORKSPACE_ROOT / ".kiro/aws-aidlc-rule-details"
+
+# Core workflow file — loaded at agent startup.
+CORE_WORKFLOW_PATH = _WORKSPACE_ROOT / ".kiro/steering/aws-aidlc-rules/core-workflow.md"
 
 # Mapping from stage name to relative file path under RULES_BASE_PATH.
 STAGE_FILE_MAP: dict[str, str] = {
+    "core-workflow": str(CORE_WORKFLOW_PATH),  # absolute path — handled specially
     "workspace-detection": "inception/workspace-detection.md",
     "reverse-engineering": "inception/reverse-engineering.md",
     "requirements-analysis": "inception/requirements-analysis.md",
@@ -44,11 +48,6 @@ MIN_CONTENT_LENGTH = 10
 def _read_rule_file(stage_name: str) -> str:
     """
     Internal helper that reads the rule file for the given stage.
-
-    Raises:
-        SkillOutputError: If the stage name is unknown or the file content is
-            shorter than MIN_CONTENT_LENGTH characters.
-        OSError: On transient I/O errors (will be retried by the decorator).
     """
     if stage_name not in STAGE_FILE_MAP:
         raise SkillOutputError(
@@ -60,7 +59,12 @@ def _read_rule_file(stage_name: str) -> str:
             ),
         )
 
-    rule_path = RULES_BASE_PATH / STAGE_FILE_MAP[stage_name]
+    # core-workflow uses an absolute path stored directly in the map value.
+    if stage_name == "core-workflow":
+        rule_path = Path(STAGE_FILE_MAP[stage_name])
+    else:
+        rule_path = RULES_BASE_PATH / STAGE_FILE_MAP[stage_name]
+
     content = rule_path.read_text(encoding="utf-8")
 
     if len(content) < MIN_CONTENT_LENGTH:
@@ -91,7 +95,7 @@ def load_rule_file(stage_name: str) -> str:
     Load the AI-DLC rule file for the specified workflow stage.
 
     Reads the corresponding Markdown rule file from
-    ``kiro-sandbox/.kiro/aws-aidlc-rule-details/`` and returns its full text
+    ``.kiro/aws-aidlc-rule-details/`` and returns its full text
     content. The content governs how the agent should execute that stage.
 
     Args:

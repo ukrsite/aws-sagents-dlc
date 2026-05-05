@@ -14,7 +14,7 @@ def build_inception_agent(
     mcp_tools: list,
     shared_state: dict[str, Any],
     hooks: list,
-    rules_base_path: str = "kiro-sandbox/.kiro/aws-aidlc-rule-details",
+    rules_base_path: str = ".kiro/aws-aidlc-rule-details",
 ) -> Agent:
     """
     Build and return the Inception_Agent.
@@ -91,14 +91,16 @@ All planning artifacts MUST be written to: {target_repo}/aidlc-docs/inception/
 
 ## CRITICAL RULES — READ BEFORE DOING ANYTHING
 
-1. **DO NOT ask the user for the user story or project details.** They are already provided above.
-2. **DO NOT scan the entire workspace root recursively.** Use scan_directory with recursive=False
+1. **LOAD CORE WORKFLOW FIRST**: Call `load_rule_file(stage_name="core-workflow")` immediately
+   before executing any stage. This file defines the mandatory workflow rules you MUST follow.
+2. **DO NOT ask the user for the user story or project details.** They are already provided above.
+3. **DO NOT scan the entire workspace root recursively.** Use scan_directory with recursive=False
    or recursive=True with max_depth=2 on specific subdirectories only.
-3. **DO NOT use file_read with mode="find" or mode="list"** — those modes do not exist.
+4. **DO NOT use file_read with mode="find" or mode="list"** — those modes do not exist.
    Use scan_directory(path=...) to list directory contents.
-4. **If load_rule_file fails**, proceed without the rule file using your built-in AI-DLC knowledge.
+5. **If load_rule_file fails**, proceed without the rule file using your built-in AI-DLC knowledge.
    Do NOT retry indefinitely or ask the user about missing rule files.
-5. **Execute stages immediately.** Do not ask for permission to start — begin with
+6. **Execute stages immediately.** Do not ask for permission to start — begin with
    workspace-detection right now.
 
 ## YOUR TOOLS
@@ -156,11 +158,12 @@ Execute in order. Skip conditional ones if not applicable:
 ## START NOW
 
 Begin immediately with **workspace-detection**:
-1. Call `load_rule_file(stage_name="workspace-detection")` — if it fails, skip and continue
-2. Call `scan_directory(path="{target_repo}", recursive=False)` to see what exists
-3. Determine Greenfield vs Brownfield based on what you find
-4. Write `{target_repo}/aidlc-docs/aidlc-state.md` with initial state
-5. Present findings and wait for approval
+1. Call `load_rule_file(stage_name="core-workflow")` to load the mandatory workflow rules
+2. Call `load_rule_file(stage_name="workspace-detection")` — if it fails, skip and continue
+3. Call `scan_directory(path="{target_repo}", recursive=False)` to see what exists
+4. Determine Greenfield vs Brownfield based on what you find
+5. Write `{target_repo}/aidlc-docs/aidlc-state.md` with initial state
+6. Present findings and wait for approval
 """
     return (rules_content + steering).strip()
 

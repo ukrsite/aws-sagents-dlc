@@ -101,7 +101,7 @@ def build_construction_agent(
     mcp_tools: list,
     shared_state: dict[str, Any],
     hooks: list,
-    rules_base_path: str = "kiro-sandbox/.kiro/aws-aidlc-rule-details",
+    rules_base_path: str = ".kiro/aws-aidlc-rule-details",
 ) -> Agent:
     """
     Build and return the Construction_Agent.
@@ -210,11 +210,17 @@ CONSTRUCTION PHASE STAGES (execute per unit of work):
 6. build-and-test (ALWAYS) — build instructions and test strategy
 
 STEERING CONSTRAINTS:
+0. **LOAD CORE WORKFLOW FIRST**: Call `load_rule_file(stage_name="core-workflow")` before
+   executing any stage. Follow the mandatory rules defined in that file.
+
 1. Produce ONLY technology-agnostic design artifacts unless the user explicitly requests
    a specific technology stack. Do not prescribe specific frameworks or libraries unless asked.
 
 2. Generated application code MUST be written to {target_repo}/src/ (or the existing source
    tree structure) using the write_source_file tool. NEVER write source code into aidlc-docs/.
+   **CRITICAL**: Always use the EXISTING package structure found in the repo. For Java projects,
+   scan the existing src/main/java/ tree to find the base package (e.g., com.sandbox.userapi)
+   and use that exact package for all new classes. NEVER invent a new package like com.example.
 
 3. Planning artifacts (design docs, execution plans, NFR docs, etc.) MUST be written to
    {target_repo}/aidlc-docs/construction/ using the write_aidlc_artifact tool.

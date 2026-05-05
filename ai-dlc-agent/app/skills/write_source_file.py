@@ -73,7 +73,12 @@ def write_source_file(target_repo: str, relative_path: str, content: str) -> str
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text(content, encoding="utf-8")
 
-    # Print progress line — filename only, no content.
+    # Track and print progress line — filename only, no content.
+    try:
+        from app.skills.stage_tracker import record
+        record("source", relative_path)
+    except Exception:
+        pass
     try:
         from rich.console import Console
         Console().print(f"  [dim]💻 source:[/dim]   [green]{relative_path}[/green]")
