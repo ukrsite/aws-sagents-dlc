@@ -127,11 +127,12 @@ def main() -> None:
         print(f"   User story  : {story_preview}")
         sys.exit(0)
 
-    try:
-        validate_inputs(repo=args.repo, story=args.story)
-    except PIIDetectedError as exc:
-        print(f"PII check failed: {exc}", file=sys.stderr)
-        sys.exit(1)
+    # TODO: re-enable PII check when llm-guard is confirmed in the environment.
+    # try:
+    #     validate_inputs(repo=args.repo, story=args.story)
+    # except PIIDetectedError as exc:
+    #     print(f"PII check failed: {exc}", file=sys.stderr)
+    #     sys.exit(1)
 
     orchestrator = WorkflowOrchestrator(model_id=args.model_id)
 

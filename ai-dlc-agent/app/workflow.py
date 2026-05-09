@@ -776,8 +776,8 @@ class WorkflowOrchestrator:
 
             async def _list_tools() -> list:
                 server_params = StdioServerParameters(
-                    command="uvx",
-                    args=["mcp-server-filesystem", "."],
+                    command="npx",
+                    args=["-y", "@modelcontextprotocol/server-filesystem", str(_WORKSPACE_ROOT)],
                 )
                 async with stdio_client(server_params) as (read, write):
                     async with ClientSession(read, write) as session:

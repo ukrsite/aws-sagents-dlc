@@ -65,7 +65,6 @@ WorkflowOrchestrator
 cd ai-dlc-agent
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pip install uv   # required for the MCP filesystem server
 
 cp .env.example .env   # fill in AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 
@@ -85,7 +84,7 @@ See [`ai-dlc-agent/README.md`](ai-dlc-agent/README.md) for full setup, usage, an
 | **Agent** | Two specialised agents — `Inception_Agent` and `Construction_Agent` — each with their own system prompt, tool set, and responsibility boundary |
 | **Skills (`@tool`)** | Seven custom tools: `load_rule_file`, `write_aidlc_artifact`, `write_source_file`, `update_workflow_state`, `request_approval`, `scan_directory`, `pii_check` |
 | **Community tools** | `file_read` from `strands-agents-tools` used in both agents for reading existing source files |
-| **MCP integration** | `uvx mcp-server-filesystem` mounted at workspace root; gives agents read/write access to the repo via standard MCP tools |
+| **MCP integration** | `npx @modelcontextprotocol/server-filesystem` mounted at workspace root; gives agents read/write access to the repo via standard MCP tools |
 | **Hooks** | `ToolCallLoggingHook` — logs every tool call to JSONL; `TokenCountingHook` — tracks token usage; `WriteInterruptHook` — intercepts MCP `write_file` calls and blocks until human approves |
 | **Steering** | `core-workflow.md` injected into each agent's system prompt at build time; per-stage rules loaded on demand via `load_rule_file` |
 | **Multi-agent orchestration** | `WorkflowOrchestrator` drives both agents stage-by-stage in Python, handling approval gates, resumption, and context passing without a third LLM layer |

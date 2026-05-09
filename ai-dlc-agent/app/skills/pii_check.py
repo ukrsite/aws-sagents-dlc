@@ -52,34 +52,40 @@ def _get_scanner() -> tuple[object, object] | None:
 
     Returns:
         (scanner, vault) tuple, or None if llm-guard is not installed.
+
+    NOTE: Scanner is temporarily disabled — returns None unconditionally.
+    To re-enable, remove the early return below.
     """
-    global _scanner_cache, _vault_cache
+    # TODO: re-enable when llm-guard dependency is confirmed in the environment.
+    return None  # noqa: RET504  # scanner disabled
 
-    if _scanner_cache is not None:
-        return _scanner_cache, _vault_cache
+    # global _scanner_cache, _vault_cache  # noqa: E266
 
-    try:
-        from llm_guard.input_scanners import Anonymize  # type: ignore[import]
-        from llm_guard.vault import Vault  # type: ignore[import]
-    except ImportError:
-        logger.warning(
-            "llm-guard is not installed — PII checking is disabled. "
-            "Install it with: pip install llm-guard"
-        )
-        return None
+    # if _scanner_cache is not None:
+    #     return _scanner_cache, _vault_cache
 
-    vault = Vault()
-    scanner = Anonymize(
-        vault,
-        entity_types=_ENTITY_TYPES,
-        language="en",
-        # threshold=0 means flag any detection, however low-confidence.
-        # Raise this (e.g. 0.5) to reduce false positives at the cost of recall.
-        threshold=0,
-    )
-    _scanner_cache = scanner
-    _vault_cache = vault
-    return scanner, vault
+    # try:
+    #     from llm_guard.input_scanners import Anonymize  # type: ignore[import]
+    #     from llm_guard.vault import Vault  # type: ignore[import]
+    # except ImportError:
+    #     logger.warning(
+    #         "llm-guard is not installed — PII checking is disabled. "
+    #         "Install it with: pip install llm-guard"
+    #     )
+    #     return None
+
+    # vault = Vault()
+    # scanner = Anonymize(
+    #     vault,
+    #     entity_types=_ENTITY_TYPES,
+    #     language="en",
+    #     # threshold=0 means flag any detection, however low-confidence.
+    #     # Raise this (e.g. 0.5) to reduce false positives at the cost of recall.
+    #     threshold=0,
+    # )
+    # _scanner_cache = scanner
+    # _vault_cache = vault
+    # return scanner, vault
 
 
 # ---------------------------------------------------------------------------

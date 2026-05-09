@@ -75,7 +75,7 @@ Both tools enforce hard path constraints (`ValueError` on violation) — the age
 
 - Python 3.12+
 - AWS account with Amazon Bedrock access and Claude enabled
-- `uv` — used to launch the MCP filesystem server (`pip install uv`)
+- Node.js 18+ with `npx` — used to launch the MCP filesystem server
 
 ---
 
@@ -91,9 +91,6 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
 # Install dependencies (includes llm-guard for PII checking)
 pip install -r requirements.txt
-
-# Install uv (required for the MCP filesystem server)
-pip install uv
 ```
 
 > **Note on first run:** `llm-guard` downloads a BERT NER model (~400 MB) on first use for PII detection. Subsequent runs use the cached model. Set `TRANSFORMERS_CACHE` to control the cache location.
@@ -452,7 +449,7 @@ docker run --rm \
 |---|---|
 | Basic agent anatomy (model, prompt, tools, state) | `inception_agent.py`, `construction_agent.py` |
 | Community tools (`strands-agents-tools`) | `file_read` in Inception + Construction agents |
-| MCP integration | `uvx mcp-server-filesystem` shared across agents, scoped to workspace root |
+| MCP integration | `npx @modelcontextprotocol/server-filesystem` shared across agents, scoped to workspace root |
 | Skills (`@tool` functions) | `load_rule_file`, `write_aidlc_artifact`, `write_source_file`, `update_workflow_state`, `request_approval`, `scan_directory`, `pii_check` |
 | Steering | System prompt constraints + `.kiro/steering/aws-aidlc-rules/core-workflow.md` injected at build time; per-stage rules loaded on demand |
 | Hooks | `ToolCallLoggingHook` (JSONL trace), `TokenCountingHook` (token accumulation), `WriteInterruptHook` (approval before every MCP write) |
