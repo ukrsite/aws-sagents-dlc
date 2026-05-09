@@ -27,7 +27,7 @@ logging.basicConfig(
 for _noisy in ("boto3", "botocore", "urllib3", "s3transfer"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
-from app.errors import ConfigurationError
+from app.errors import ConfigurationError, PIIDetectedError
 from app.workflow import DEFAULT_MODEL_ID, WorkflowOrchestrator
 
 
@@ -47,6 +47,29 @@ def validate_env() -> None:
     # We only require AWS_REGION to be explicitly set.
     if missing:
         raise ConfigurationError(missing)
+
+
+def validate_inputs(repo: str, story: str) -> None:
+    """
+    Scan --repo and --story for PII using LLM Guard before the workflow starts.
+
+    Raises:
+        PIIDetectedError: If PII is detected in either field.
+    """
+    from app.skills.pii_check import check_inputs
+
+    try:
+        from rich.console import Console
+        Console().print("[dim]🔍  Scanning inputs for PII...[/dim]")
+    except ImportError:
+        print("🔍  Scanning inputs for PII...", flush=True)
+
+    results = check_inputs(story=story, repo=repo)
+    violations = [r for r in results if not r.is_valid]
+
+    if violations:
+        for v in violations:
+            raise PIIDetectedError(v.field, v.detected_entities)
 
 
 def main() -> None:
@@ -103,6 +126,12 @@ def main() -> None:
         story_preview = args.story[:100] + ("..." if len(args.story) > 100 else "")
         print(f"   User story  : {story_preview}")
         sys.exit(0)
+
+    try:
+        validate_inputs(repo=args.repo, story=args.story)
+    except PIIDetectedError as exc:
+        print(f"PII check failed: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     orchestrator = WorkflowOrchestrator(model_id=args.model_id)
 

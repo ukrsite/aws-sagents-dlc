@@ -24,3 +24,16 @@ class SkillOutputError(Exception):
             f"Skill '{operation_name}' failed after {attempts} attempt(s). "
             f"Last error: {last_error}"
         )
+
+
+class PIIDetectedError(Exception):
+    """Raised when PII is detected in user-supplied input before it reaches the agent."""
+
+    def __init__(self, field: str, findings: list[str]) -> None:
+        self.field = field
+        self.findings = findings
+        types_str = ", ".join(findings)
+        super().__init__(
+            f"PII detected in '{field}': {types_str}. "
+            "Remove personal information before running the agent."
+        )

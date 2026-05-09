@@ -44,29 +44,39 @@ def _print_skip(stage: str) -> None:
 
 def _build_inception_context(target_repo: str) -> str:
     """
-    Build a concise summary of inception artifacts to pass to construction stages.
-    Reads key files from aidlc-docs/inception/ and returns a compact summary.
+    Build inception artifact context to pass to construction stages.
+    Reads key files from aidlc-docs/inception/ and returns their full content.
     Also includes the existing source tree structure for brownfield projects.
     """
     aidlc = Path(target_repo) / "aidlc-docs"
     parts = []
 
-    # Detect existing source tree structure (critical for brownfield — correct package names).
-    src_root = Path(target_repo) / "src" / "main" / "java"
-    if src_root.exists():
-        java_files = sorted(src_root.rglob("*.java"))[:20]  # first 20 files
-        if java_files:
-            tree_lines = ["**Existing Java source tree (use these exact package paths):**"]
-            for f in java_files:
-                rel = f.relative_to(Path(target_repo))
-                tree_lines.append(f"- `{rel}`")
-            # Extract base package from first file path
-            first_rel = java_files[0].relative_to(src_root)
-            parts_path = first_rel.parts
-            if len(parts_path) >= 3:
-                base_pkg = ".".join(parts_path[:3])
+    # Detect existing source tree structure (language-agnostic, brownfield).
+    repo = Path(target_repo)
+    lang_configs = [
+        ("Java",       repo / "src" / "main" / "java", "*.java"),
+        ("Python",     repo / "src",                   "*.py"),
+        ("JavaScript", repo / "src",                   "*.js"),
+        ("TypeScript", repo / "src",                   "*.ts"),
+    ]
+    for lang, src_root, glob_pat in lang_configs:
+        if not src_root.exists():
+            continue
+        src_files = sorted(src_root.rglob(glob_pat))[:20]
+        if not src_files:
+            continue
+        tree_lines = [f"**Existing {lang} source tree (use these exact paths):**"]
+        for f in src_files:
+            tree_lines.append(f"- `{f.relative_to(repo)}`")
+        # For Java, also surface the base package.
+        if lang == "Java":
+            first_rel = src_files[0].relative_to(src_root)
+            pkg_parts = first_rel.parts
+            if len(pkg_parts) >= 3:
+                base_pkg = ".".join(pkg_parts[:3])
                 tree_lines.append(f"\n**Base package: `{base_pkg}`** — all new classes MUST use this package.")
-            parts.append("\n".join(tree_lines))
+        parts.append("\n".join(tree_lines))
+        break  # stop at first language found
 
     # Key inception artifact files.
     key_files = [
@@ -80,8 +90,7 @@ def _build_inception_context(target_repo: str) -> str:
     for label, path in key_files:
         if path.exists():
             content = path.read_text(encoding="utf-8")
-            truncated = content[:800] + ("..." if len(content) > 800 else "")
-            parts.append(f"### {label}\n{truncated}")
+            parts.append(f"### {label}\n{content}")
 
     if not parts:
         return "(No inception artifacts found — proceed with user story as the only input)"
@@ -356,8 +365,9 @@ class WorkflowOrchestrator:
     Top-level orchestrator for the AI-DLC Strands Agent.
 
     Accepts a target repository path and a user story, then executes the full
-    AI-DLC workflow (Inception → Construction) using a three-agent Supervisor
-    pattern. All planning artifacts are written to ``{target_repo}/aidlc-docs/``
+    AI-DLC workflow (Inception → Construction) by driving Inception_Agent and
+    Construction_Agent sequentially with a human approval gate between each stage.
+    All planning artifacts are written to ``{target_repo}/aidlc-docs/``
     and all generated source code is written to ``{target_repo}/src/``.
 
     Args:
@@ -394,8 +404,8 @@ class WorkflowOrchestrator:
 
         1. Checks ``{target_repo}/aidlc-docs/aidlc-state.md`` for session resumption.
         2. Connects to the MCP filesystem server (falls back to direct I/O on failure).
-        3. Builds Inception_Agent, Construction_Agent, and Supervisor_Agent.
-        4. Invokes the Supervisor_Agent with the target repo and user story.
+        3. Builds Inception_Agent and Construction_Agent.
+        4. Runs each stage sequentially with a human approval gate between stages.
         5. Checkpoints state to ``outputs/session_state.json`` after completion.
         6. Publishes session metrics to CloudWatch.
 
@@ -463,7 +473,7 @@ class WorkflowOrchestrator:
 
         # Build shared hooks.
         logging_hook = ToolCallLoggingHook(
-            agent_name="supervisor_agent", logger=self._logger
+            agent_name="workflow_orchestrator", logger=self._logger
         )
         hooks = [logging_hook, self._token_hook]
 
@@ -598,10 +608,10 @@ class WorkflowOrchestrator:
                 code_gen_hint = ""
                 if stage == "code-generation":
                     code_gen_hint = (
-                        "\n\nCRITICAL: You MUST write actual Java source code files using "
+                        "\n\nCRITICAL: You MUST write actual source code files using "
                         "write_source_file. Do NOT skip code generation because of missing "
                         "prerequisites — use the inception artifacts above as your design input. "
-                        "Write at minimum the main service class and controller for the feature."
+                        "Write at minimum the main service/module and entry point for the feature."
                     )
 
                 stage_result = _run_stage_with_retry(
@@ -644,16 +654,15 @@ class WorkflowOrchestrator:
                             logger=self._logger,
                             is_construction=True,
                             custom_prompt=(
-                                f"Generate Java source code for the user story: {user_story}\n"
+                                f"Generate source code for the user story: {user_story}\n"
                                 f"Target repository: {abs_target_repo}\n\n"
                                 f"INCEPTION CONTEXT:\n{inception_context}\n\n"
-                                f"You MUST write Java source files using write_source_file. "
+                                f"You MUST write source files using write_source_file. "
                                 f"The existing source tree is shown in the inception context above — "
-                                f"use the EXACT same package structure and directory paths. "
-                                f"Do NOT create new packages like com.example — integrate into the existing ones.\n\n"
-                                f"At minimum, create:\n"
-                                f"1. A service class for the new feature\n"
-                                f"2. A controller class with REST endpoints\n"
+                                f"use the EXACT same language, structure, and directory paths. "
+                                f"Do NOT introduce new packages or modules outside the existing structure.\n\n"
+                                f"At minimum, create the main service/module and any required entry points "
+                                f"for the feature described in the user story.\n\n"
                                 f"3. Any required DTOs or model updates\n\n"
                                 f"Use write_source_file with target_repo='{abs_target_repo}' and "
                                 f"relative_path matching the existing source tree structure shown above.\n"
