@@ -1,0 +1,16 @@
+{
+  "targets": {
+    "default": {
+      "resources": {
+        "runtimes": {
+          "aidlcagent": {
+            "runtimeId": "aidlcagent_aidlcagent-GYGZ5sAxEy",
+            "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:922060081651:runtime/aidlcagent_aidlcagent-GYGZ5sAxEy",
+            "roleArn": "arn:aws:iam::922060081651:role/AgentCore-aidlcagent-defa-ApplicationAgentAidlcagen-H2ajP1qVk50L"
+          }
+        },
+        "stackName": "AgentCore-aidlcagent-default"
+      }
+    }
+  }
+}

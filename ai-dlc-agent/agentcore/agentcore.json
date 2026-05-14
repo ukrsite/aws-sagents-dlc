@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.agentcore.aws.dev/v1/agentcore.json",
+  "name": "aidlcagent",
+  "version": 1,
+  "managedBy": "CDK",
+  "tags": {
+    "agentcore:created-by": "agentcore-cli",
+    "agentcore:project-name": "aidlcagent"
+  },
+  "runtimes": [
+    {
+      "name": "aidlcagent",
+      "build": "CodeZip",
+      "entrypoint": "agentcore_entrypoint.py",
+      "codeLocation": ".",
+      "runtimeVersion": "PYTHON_3_12",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP",
+      "envVars": [
+        { "name": "AWS_REGION", "value": "us-east-1" },
+        { "name": "MODEL_ID", "value": "us.anthropic.claude-haiku-4-5-20251001-v1:0" },
+        { "name": "AIDLC_VERBOSE", "value": "0" }
+      ]
+    }
+  ],
+  "memories": [],
+  "credentials": [],
+  "evaluators": [],
+  "onlineEvalConfigs": [],
+  "agentCoreGateways": [],
+  "policyEngines": [],
+  "configBundles": [],
+  "abTests": [],
+  "httpGateways": []
+}

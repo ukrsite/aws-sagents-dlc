@@ -1,0 +1,24 @@
+================================================================================
+AGENTCORE DEPLOY LOG
+Command: deploy
+Started: 2026-05-13T20:16:31.791Z
+================================================================================
+
+
+[23:16:31] STEP: Load deployment target
+[23:16:31] Status: SUCCESS
+[23:16:31] Duration: 15ms
+
+[23:16:31] STEP: Validate project
+[23:16:33] [ERROR] AWS credentials are invalid.
+
+To fix this:
+  1. Check your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+  2. Or Update AWS CLI from v2.27.0 to v2.32.0+ (https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) and run: aws login
+[23:16:33] Status: FAILED
+[23:16:33] Duration: 2.1s
+
+================================================================================
+FAILED
+Total Duration: 2.1s
+================================================================================

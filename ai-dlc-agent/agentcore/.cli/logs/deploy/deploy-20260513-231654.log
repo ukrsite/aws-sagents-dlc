@@ -1,0 +1,44 @@
+================================================================================
+AGENTCORE DEPLOY LOG
+Command: deploy
+Started: 2026-05-13T20:16:54.951Z
+================================================================================
+
+
+[23:16:54] STEP: Load deployment target
+[23:16:55] Status: SUCCESS
+[23:16:55] Duration: 681ms
+
+[23:16:55] STEP: Validate project
+[23:16:56] Status: SUCCESS
+[23:16:56] Duration: 1.1s
+
+[23:16:56] STEP: Build CDK project
+[23:17:11] Status: SUCCESS
+[23:17:11] Duration: 14.3s
+
+[23:17:11] STEP: Synthesize CloudFormation
+[23:17:43] Status: SUCCESS
+[23:17:43] Duration: 32.0s
+
+[23:17:43] STEP: Check bootstrap status
+[23:17:43] Bootstrap needed, auto-confirming...
+[23:19:16] Status: SUCCESS
+[23:19:16] Duration: 1m 33s
+
+[23:19:16] STEP: Check stack status
+[23:19:17] Status: SUCCESS
+[23:19:17] Duration: 1.0s
+
+[23:19:17] STEP: Deploy to AWS
+[23:20:51] Status: SUCCESS
+[23:20:51] Duration: 1m 34s
+
+[23:20:51] STEP: Persist deployment state
+[23:20:54] Status: SUCCESS
+[23:20:54] Duration: 2.7s
+
+================================================================================
+COMPLETED SUCCESSFULLY
+Total Duration: 4m 3s
+================================================================================

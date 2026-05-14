@@ -63,14 +63,16 @@ WorkflowOrchestrator
 
 ```bash
 cd ai-dlc-agent
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env
+uv sync && source .venv/bin/activate
 
 cp .env.example .env   # fill in AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 
 python -m app.main \
   --repo kiro-sandbox/services/java-api \
-  --story "As a user, I want to update my profile"
+  --story "As a user, I want to update my profile" \
+  --model-id us.anthropic.claude-haiku-4-5-20251001-v1:0
+
 ```
 
 See [`ai-dlc-agent/README.md`](ai-dlc-agent/README.md) for full setup, usage, and architecture details.

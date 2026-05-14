@@ -1,0 +1,20 @@
+================================================================================
+AGENTCORE DEPLOY LOG
+Command: deploy
+Started: 2026-05-13T20:16:15.831Z
+================================================================================
+
+
+[23:16:15] STEP: Load deployment target
+[23:16:15] Status: SUCCESS
+[23:16:15] Duration: 17ms
+
+[23:16:15] STEP: Validate project
+[23:16:15] [ERROR] CDK project not found at /home/sk/vscode/aws-sagents-dlc/ai-dlc-agent/agentcore/cdk. Run 'agentcore create' first.
+[23:16:15] Status: FAILED
+[23:16:15] Duration: 2ms
+
+================================================================================
+FAILED
+Total Duration: 35ms
+================================================================================
