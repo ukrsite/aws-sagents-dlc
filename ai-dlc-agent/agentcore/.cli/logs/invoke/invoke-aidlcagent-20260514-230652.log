@@ -1,0 +1,32 @@
+================================================================================
+AGENTCORE INVOKE LOG
+Agent: aidlcagent
+Runtime ARN: arn:aws:bedrock-agentcore:us-east-1:922060081651:runtime/aidlcagent_aidlcagent-GYGZ5sAxEy
+Region: us-east-1
+Session ID: none
+Started: 2026-05-14T20:06:52.467Z
+================================================================================
+
+[23:06:52.469] INVOKE REQUEST (Session: none)
+
+--- REQUEST ---
+{
+  "timestamp": "2026-05-14T20:06:52.469Z",
+  "agent": "aidlcagent",
+  "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:922060081651:runtime/aidlcagent_aidlcagent-GYGZ5sAxEy",
+  "region": "us-east-1",
+  "prompt": "{\"action\":\"start\",\"repo\":\"kiro-sandbox/services/java-api\",\"story\":\"As a user, I want to update my\n  profile\",\"model_id\":\"us.anthropic.claude-haiku-4-5-20251001-v1:0\",\"auto_approve\":true}"
+}
+--- END REQUEST ---
+
+[23:06:56.793] INVOKE RESPONSE (4324ms)
+
+--- RESPONSE ---
+{
+  "timestamp": "2026-05-14T20:06:56.793Z",
+  "durationMs": 4324,
+  "success": true,
+  "response": "{\n  \"status\": \"error\",\n  \"error\": \"'repo' and 'story' are required for action='start'.\",\n  \"session_id\": \"0b8ecb0f-a1d0-4d50-95cc-ae58710bcffd\"\n}"
+}
+--- END RESPONSE ---
+

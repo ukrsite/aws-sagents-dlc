@@ -2,7 +2,7 @@
 
 An AWS Strands Agents SDK prototype that implements the full **AI-Driven Development Life Cycle (AI-DLC)** workflow. You point it at a code repository and give it a user story — the agent analyzes the repo, asks clarifying questions, plans the work stage by stage, and writes the generated code directly into the target repo.
 
-Built with Amazon Bedrock (Claude), MCP filesystem integration, LLM Guard PII protection, and a two-agent sequential workflow.
+Built with Amazon Bedrock (Claude), MCP filesystem integration, and a two-agent sequential workflow. Supports two execution modes: **interactive CLI** and **Amazon Bedrock AgentCore Runtime** (HTTP/serverless).
 
 ---
 
@@ -11,10 +11,9 @@ Built with Amazon Bedrock (Claude), MCP filesystem integration, LLM Guard PII pr
 ```
 You provide:
   --repo  kiro-sandbox/services/java-api
-  --story "As a user, I want to reset my password"
+  --story "As a user, I want to update my profile"
 
 The agent:
-  0. Scans inputs for PII  →  blocks if personal data detected
   1. Scans the repo        →  detects Brownfield (existing code)
   2. Reverse engineers the codebase
   3. Asks clarifying questions  →  you answer interactively in the terminal
@@ -23,35 +22,31 @@ The agent:
   6. Writes source files directly into the repo
 ```
 
-Every stage pauses for your approval before continuing. You stay in control throughout.
-
 ---
 
 ## Architecture
 
 ```
-CLI (app/main.py)
-  │
-  ├─► PII check (app/skills/pii_check.py)
-  │       llm-guard Anonymize scanner — blocks PERSON, EMAIL, SSN, credit card, etc.
-  │       Lazy-loads BERT NER model on first run (~400 MB, cached after)
-  │
-  └─► WorkflowOrchestrator (app/workflow.py)
+CLI (app/main.py)                    AgentCore (agentcore_entrypoint.py)
+  │                                    │
+  └─► WorkflowOrchestrator ◄───────────┘
         │
         ├─► Inception_Agent (app/agents/inception_agent.py)
-        │       Tools: load_rule_file, write_aidlc_artifact, update_workflow_state,
+        │       Model:  BedrockModel (max_tokens=8192, SlidingWindowConversationManager)
+        │       Tools:  load_rule_file, write_aidlc_artifact, update_workflow_state,
         │               request_approval, scan_directory, file_read, MCP
         │       Stages: Workspace Detection → Reverse Engineering →
         │               Requirements Analysis → User Stories →
         │               Workflow Planning → Application Design → Units Generation
         │
         └─► Construction_Agent (app/agents/construction_agent.py)
-                Tools: load_rule_file, write_aidlc_artifact, write_source_file,
-                       update_workflow_state, request_approval, scan_directory,
-                       file_read, MCP
-                Hooks: WriteInterruptHook (approval before every file write)
+                Model:  BedrockModel (max_tokens=8192, SlidingWindowConversationManager)
+                Tools:  load_rule_file, write_aidlc_artifact, write_source_file,
+                        update_workflow_state, request_approval, scan_directory,
+                        file_read, MCP
+                Hooks:  WriteInterruptHook (approval before every file write)
                 Stages: Functional Design → NFR Requirements → NFR Design →
-                         Infrastructure Design → Code Generation → Build & Test
+                        Infrastructure Design → Code Generation → Build & Test
 ```
 
 **Write path separation** — enforced at the Python level:
@@ -61,21 +56,33 @@ CLI (app/main.py)
 | `write_aidlc_artifact` | `{repo}/aidlc-docs/` | Planning docs, design artifacts |
 | `write_source_file` | `{repo}/src/` | Generated application code |
 
-Both tools enforce hard path constraints (`ValueError` on violation) — the agent cannot write source code into `aidlc-docs/` or vice versa.
+Both tools enforce hard path constraints (`ValueError` on violation).
 
-**Rule files** — stage rules loaded from `.kiro/aws-aidlc-rule-details/`, core workflow steering from `.kiro/steering/aws-aidlc-rules/core-workflow.md`.
+**MCP filesystem server** — `npx @modelcontextprotocol/server-filesystem` scoped to workspace root (CLI mode only; disabled in AgentCore mode).
 
-**MCP filesystem server** — scoped to the workspace root, shared across all agents.
+**WriteInterruptHook** — fires before every MCP `write_file` call. Shows file type, path, and content preview. Waits 60 seconds for approval.
 
-**WriteInterruptHook** — fires before every MCP `write_file` call. Shows file type (ARTIFACT or SOURCE CODE), path, and content preview. Waits 60 seconds for your approval.
+**SlidingWindowConversationManager** — keeps the last 40 messages in context to prevent token overflow across long multi-stage runs.
 
 ---
 
 ## Prerequisites
 
 - Python 3.12+
-- AWS account with Amazon Bedrock access and Claude enabled
-- Node.js 18+ with `npx` — used to launch the MCP filesystem server
+- AWS account with Amazon Bedrock access and a Claude model enabled
+- Node.js 18+ with `npx` — required for the MCP filesystem server (CLI mode)
+
+### Supported models
+
+Use a **Geo cross-region inference profile** (the `us.` prefix) — bare model IDs are not supported for on-demand throughput:
+
+| Model | ID | Notes |
+|---|---|---|
+| Claude Haiku 4.5 | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Fast, cost-effective |
+| Claude Sonnet 4 | `us.anthropic.claude-sonnet-4-20250514-v1:0` | Higher quality |
+| Claude 3.5 Haiku | `us.anthropic.claude-3-5-haiku-20241022-v1:0` | Fallback (no use-case form) |
+
+> **Note:** Claude 4.x models require submitting Anthropic's use case details form on first use. Trigger it by opening the model in the Bedrock playground and sending any message.
 
 ---
 
@@ -90,16 +97,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env   # add uv to PATH for the current shell
 
 # Create .venv and install all dependencies in one step
-uv sync                          # installs main deps
-uv sync --extra dev              # also installs pytest, hypothesis
+uv sync
 
 # Activate the virtual environment
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 ```
 
 ### Environment variables
-
-Copy the example file and fill in your values:
 
 ```bash
 cp .env.example .env
@@ -110,168 +114,196 @@ cp .env.example .env
 AWS_REGION=us-east-1
 AWS_ACCESS_KEY_ID=your_access_key_id
 AWS_SECRET_ACCESS_KEY=your_secret_access_key
+MODEL_ID=us.anthropic.claude-haiku-4-5-20251001-v1:0
 ```
 
 | Variable | Required | Description |
 |---|---|---|
-| `AWS_REGION` | **Yes** | AWS region for Bedrock and CloudWatch (e.g. `us-east-1`) |
+| `AWS_REGION` | **Yes** | AWS region for Bedrock and CloudWatch |
 | `AWS_ACCESS_KEY_ID` | No* | AWS access key ID |
 | `AWS_SECRET_ACCESS_KEY` | No* | AWS secret access key |
-| `AIDLC_VERBOSE` | No | Set to `1` to enable verbose tool call logging to stdout |
-| `TRANSFORMERS_CACHE` | No | Override the HuggingFace model cache directory |
+| `MODEL_ID` | No | Override the default Bedrock model |
+| `AIDLC_VERBOSE` | No | Set to `1` for verbose tool call logging to stdout |
 
-\* Not required when running on EC2/ECS with an IAM role — credentials are picked up automatically from the instance metadata service.
-
-> **Note:** Environment variables already set in your shell take precedence over `.env`. The `.env` file is git-ignored and should never be committed.
+\* Not required on EC2/ECS with an IAM role.
 
 ---
 
-## Usage
-
-All commands must be run from the `ai-dlc-agent/` directory with the virtual environment activated.
+## CLI mode
 
 ### Run the agent
 
 ```bash
 python -m app.main \
   --repo kiro-sandbox/services/java-api \
-  --story "As a user, I want to reset my password so I can regain access to my account"
+  --story "As a user, I want to update my profile" \
+  --model-id us.anthropic.claude-haiku-4-5-20251001-v1:0
 ```
-
-**Arguments:**
 
 | Argument | Short | Required | Description |
 |---|---|---|---|
-| `--repo` | `-r` | **Yes** | Path to the target repository, relative to the workspace root (`aws-sagents-dlc/`) |
+| `--repo` | `-r` | **Yes** | Target repository path, relative to workspace root |
 | `--story` | `-s` | **Yes** | User story to implement |
-| `--model-id` | `-m` | No | Bedrock model ID (default: `us.anthropic.claude-sonnet-4-5-20250929-v1:0`) |
-| `--dry-run` | | No | Validate environment and print config without invoking agents or PII scan |
+| `--model-id` | `-m` | No | Bedrock model ID (or set `MODEL_ID` in `.env`) |
+| `--dry-run` | | No | Validate environment without invoking agents |
 
-### Validate your setup
+### Interactive workflow
 
-```bash
-python -m app.main \
-  --repo kiro-sandbox/services/java-api \
-  --story "test" \
-  --dry-run
-```
-
-Expected output:
-```
-✅ Environment validated successfully.
-   Model ID    : us.anthropic.claude-sonnet-4-5-20250929-v1:0
-   Target repo : kiro-sandbox/services/java-api
-   User story  : test
-```
-
----
-
-## PII protection
-
-Before the workflow starts, both `--story` and `--repo` are scanned for personally identifiable information using [LLM Guard](https://protectai.github.io/llm-guard/)'s `Anonymize` scanner (backed by Presidio + BERT NER).
-
-**Detected entity types:** `PERSON`, `EMAIL_ADDRESS`, `PHONE_NUMBER`, `CREDIT_CARD`, `US_SSN`, `IP_ADDRESS`, `IBAN_CODE`, `CRYPTO`, `UUID`
-
-If PII is detected, the agent exits immediately with a clear error:
+After each stage completes, a summary panel shows every artifact written:
 
 ```
-🔍  Scanning inputs for PII...
-PII check failed: PII detected in 'story': PERSON, EMAIL_ADDRESS.
-Remove personal information before running the agent.
-```
-
-**Behaviour when `llm-guard` is unavailable:** the check degrades gracefully — a warning is logged and the workflow continues. The NER model is loaded lazily on first scan (not on import), so `--dry-run` is unaffected.
-
----
-
-## Interactive workflow
-
-The agent runs in stages and pauses at each one for your approval.
-
-### Stage approval
-
-After each stage completes, a summary panel is shown listing every artifact written:
-
-```
-╭─────────────────────────────────────────────────────╮
-│  ✅  Stage complete: requirements-analysis           │
-│                                                     │
-│  Generated requirements and clarifying questions.   │
-│                                                     │
-│  Artifacts written:                                 │
-│  - 📄 inception/requirements/requirements.md        │
-│  - 📄 inception/requirements/requirement-           │
-│       verification-questions.md                     │
-╰─────────────────────────────────────────────────────╯
-
+╭──────────────────────────────────────────────────────╮
+│  ✅  Stage complete: requirements-analysis            │
+│  Artifacts written:                                  │
+│  - 📄 inception/requirements/requirements.md         │
+│  - 📄 inception/requirements/requirement-            │
+│       verification-questions.md                      │
+╰──────────────────────────────────────────────────────╯
 Press Enter to continue, type v to view an artifact,
 or type feedback to request changes:
 ```
 
-- Press **Enter** (or type `approve` / `yes`) to proceed to the next stage
-- Type **`v`** to open an artifact viewer and inspect what was written
-- Type any other text to send feedback — the agent will revise and re-present
+- **Enter** — proceed to the next stage
+- **`v`** — open artifact viewer (or show questions file for `requirements-analysis`)
+- **any text** — send as feedback; the agent revises and re-presents
 
 ### Clarifying questions
 
-After `requirements-analysis`, unanswered questions are shown in a compact panel:
+After `requirements-analysis`, unanswered questions appear in a compact panel. Answer with a single line like `A2 B1 C3`:
 
 ```
 ╭──────────────────────────────────────────────────────╮
 │  📋  Requirements Clarification                      │
-│                                                      │
 │  A. Implementation complexity                        │
-│     1) PoC / MVP                                     │
-│     2) Standard                                      │
-│     3) Enterprise                                    │
-│                                                      │
+│     1) PoC / MVP  2) Standard  3) Enterprise         │
 │  B. Authentication approach                          │
-│     1) JWT tokens    2) Session cookies              │
-│                                                      │
+│     1) JWT tokens  2) Session cookies                │
 │  Answer: A? B?  (e.g. A1 B2 — or 'skip')            │
 ╰──────────────────────────────────────────────────────╯
 ```
 
-Answer with a single line like `A2 B1` — answers are written back into the questions file automatically.
-
-### File write approval
-
-Before writing any file, the Construction Agent shows you what it's about to write:
+### File write approval (Construction phase)
 
 ```
-======================================================================
 ⚠️  INTERRUPT: Construction Agent wants to write a SOURCE CODE file
-   File type   : SOURCE CODE
-   Target path : kiro-sandbox/services/java-api/src/main/java/.../PasswordResetService.java
-   Content preview:
-   public class PasswordResetService {
-       ...
-   }
-======================================================================
+   Target path : .../PasswordResetService.java
+   Content preview: public class PasswordResetService { ...
 Type "approve" to write the file, or "reject" to cancel:
 ```
 
-Type `approve` to write the file or `reject` to discard it. If you don't respond within 60 seconds, the write is automatically rejected.
+---
 
-### Controlling log output
+## AgentCore mode
 
-By default the agent runs quietly — tool call logs go to `outputs/agent_trace.jsonl` only. To see verbose output:
+The `agentcore_entrypoint.py` wraps the same `WorkflowOrchestrator` in a `BedrockAgentCoreApp` HTTP service. Key differences from CLI mode:
+
+| | CLI | AgentCore |
+|---|---|---|
+| Approval gates | `input()` blocking stdin | Return-of-control over HTTP |
+| Default mode | Manual approval per stage | `auto_approve=true` — runs end-to-end |
+| Pauses for | Every stage | Clarifying questions only |
+| MCP server | `npx` subprocess | Disabled (direct file I/O) |
+| File write approval | `WriteInterruptHook` (60s stdin) | Auto-approved |
+| Session state | `outputs/session_state.json` | `/tmp/<session_id>/` |
+
+### Local testing (no CLI required)
 
 ```bash
-AIDLC_VERBOSE=1 python -m app.main --repo ... --story "..."
+# Terminal 1 — start the HTTP server
+python agentcore_entrypoint.py
+
+# Terminal 2 — start a workflow (runs all stages automatically)
+curl -s -X POST http://localhost:8080/invocations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action":       "start",
+    "repo":         "kiro-sandbox/services/java-api",
+    "story":        "As a user, I want to update my profile",
+    "model_id":     "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "auto_approve": true
+  }' | python3 -m json.tool
+```
+
+Copy the `session_id` from the response. If `status` is `awaiting_answers`, answer the questions:
+
+```bash
+SESSION="<paste session_id here>"
+
+curl -s -X POST http://localhost:8080/invocations \
+  -H "Content-Type: application/json" \
+  -d "{\"action\": \"answer\", \"session_id\": \"$SESSION\", \"answers\": \"A2 B1 C3\"}" \
+  | python3 -m json.tool
+```
+
+Keep calling until `status` is `complete`.
+
+### Response shape
+
+```json
+{
+  "status":           "running | awaiting_answers | complete | error",
+  "session_id":       "<uuid>",
+  "stage":            "<last completed stage>",
+  "completed_stages": ["workspace-detection", "..."],
+  "artifacts":        [{"type": "artifact|source", "path": "..."}],
+  "questions_md":     "<markdown — only when status=awaiting_answers>",
+  "result":           {},
+  "error":            ""
+}
+```
+
+### Actions
+
+| Action | When to use |
+|---|---|
+| `start` | Begin a new workflow |
+| `answer` | Provide answers to clarifying questions |
+| `approve` | Manually approve a stage (when `auto_approve=false`) |
+| `feedback` | Request changes to the current stage (when `auto_approve=false`) |
+
+### Deploy to AgentCore Runtime
+
+```bash
+# Install AgentCore CLI
+npm install -g @aws/agentcore
+
+# Configure (uses agentcore/agentcore.json)
+agentcore configure --entrypoint agentcore_entrypoint.py --non-interactive
+
+# Deploy
+agentcore deploy
+
+# Invoke
+agentcore invoke '{
+  "action": "start",
+  "repo": "kiro-sandbox/services/java-api",
+  "story": "As a user, I want to update my profile",
+  "auto_approve": true
+}'
+```
+
+---
+
+## Session resumption (CLI)
+
+If you stop the agent mid-way, run the same command again. The agent reads `aidlc-state.md` and resumes from the last incomplete stage:
+
+```bash
+python -m app.main \
+  --repo kiro-sandbox/services/java-api \
+  --story "As a user, I want to update my profile" \
+  --model-id us.anthropic.claude-haiku-4-5-20251001-v1:0
 ```
 
 ---
 
 ## Output locations
 
-After a successful run, files are organized as follows:
-
 ```
 kiro-sandbox/services/java-api/
-├── aidlc-docs/                          ← AI-DLC planning artifacts (never source code)
-│   ├── aidlc-state.md                   ← Workflow progress tracker
-│   ├── audit.md                         ← Audit log of all stage completions
+├── aidlc-docs/
+│   ├── aidlc-state.md                   ← workflow progress tracker
+│   ├── audit.md                         ← audit log
 │   ├── inception/
 │   │   ├── requirements/
 │   │   │   ├── requirement-verification-questions.md
@@ -289,25 +321,12 @@ kiro-sandbox/services/java-api/
 │       │   └── {unit}-code-generation-plan.md
 │       └── build-and-test/
 │           └── build-and-test-summary.md
-└── src/main/java/...                    ← Generated application code (written here)
+└── src/main/java/...                    ← generated source code
 
 ai-dlc-agent/
 └── outputs/
-    ├── agent_trace.jsonl                ← Structured JSON trace log (tool calls, retries)
-    └── session_state.json               ← Session checkpoint for resumption
-```
-
----
-
-## Resuming an interrupted session
-
-If you stop the agent mid-way, just run the same command again. The agent reads `aidlc-state.md` and resumes from the last incomplete stage — it won't restart from scratch.
-
-```bash
-# Same command as before — agent picks up where it left off
-python -m app.main \
-  --repo kiro-sandbox/services/java-api \
-  --story "As a user, I want to reset my password"
+    ├── agent_trace.jsonl                ← structured JSON trace log
+    └── session_state.json               ← session checkpoint
 ```
 
 ---
@@ -318,73 +337,40 @@ python -m app.main \
 python evals/run_evals.py
 ```
 
-Runs five test cases and prints a summary report:
-
-```
-======================================================================
-AI-DLC Strands Agent — Evaluation Suite
-======================================================================
-
-▶ Running case: brownfield_java_api
-  ✅ PASS [StateFileEvaluator]: Passed
-  ✅ PASS [AuditLogEvaluator]: Passed
-  ...
-
-======================================================================
-SUMMARY
-======================================================================
-Passed: 5/5
-```
-
-Exits `0` when all cases pass, `1` when any case fails.
+Runs five test cases against four evaluator classes (`StateFileEvaluator`, `AuditLogEvaluator`, `ClarificationEvaluator`, `SteeringViolationEvaluator`). Exits `0` when all pass, `1` when any fail.
 
 ---
 
 ## Observability
 
-### Application-level tracing (local)
+### Local trace log
 
-All agent activity is logged to `outputs/agent_trace.jsonl` in JSON Lines format:
+All tool calls logged to `outputs/agent_trace.jsonl` (JSON Lines):
 
 ```jsonl
-{"type": "tool_before", "agent_name": "inception_agent", "tool_name": "load_rule_file", "input_args": {"stage_name": "workspace-detection"}, "timestamp": "2025-01-01T12:00:01Z"}
-{"type": "tool_after", "agent_name": "inception_agent", "tool_name": "load_rule_file", "duration_ms": 12.3, "status": "success", "timestamp": "2025-01-01T12:00:01Z"}
-{"type": "stage_rejected", "stage": "requirements-analysis", "timestamp": "2025-01-01T12:01:00Z"}
+{"type": "tool_before", "agent_name": "inception_agent", "tool_name": "load_rule_file", "timestamp": "..."}
+{"type": "tool_after", "agent_name": "inception_agent", "tool_name": "load_rule_file", "duration_ms": 12.3, "status": "success", "timestamp": "..."}
 ```
 
 ### CloudWatch metrics
 
-When running on AWS, session metrics are published to CloudWatch under the namespace `AI-DLC/StrandsAgent`:
+Published to `AI-DLC/StrandsAgent` namespace: `TotalToolCalls`, `TotalRetries`, `TotalTokens`, `TotalDurationMs`.
 
-| Metric | Unit |
-|---|---|
-| `TotalToolCalls` | Count |
-| `TotalRetries` | Count |
-| `TotalTokens` | Count |
-| `TotalDurationMs` | Milliseconds |
+### Bedrock model invocation logging
 
-### Bedrock model invocation logging (AWS console)
+Enable in Bedrock console → Settings → Model invocation logging. Captures full request/response bodies to CloudWatch Logs or S3.
 
-Enable in the Bedrock console → **Settings → Model invocation logging** to capture full request/response bodies for every `Converse` call. Supports CloudWatch Logs and S3 destinations. This is an account-level setting — no code changes required.
+### OpenTelemetry / X-Ray
 
-### Distributed tracing with OpenTelemetry
-
-The Strands SDK emits OTEL spans natively for every model call and tool invocation. To route traces to AWS X-Ray, set these environment variables before running:
+The Strands SDK emits OTEL spans natively. To route to X-Ray:
 
 ```bash
 export OTEL_TRACES_EXPORTER=otlp
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://xray.us-east-1.amazonaws.com
 export OTEL_PROPAGATORS=xray
 export OTEL_PYTHON_ID_GENERATOR=xray
-```
-
-Install the OTEL exporter:
-
-```bash
 pip install opentelemetry-sdk opentelemetry-exporter-otlp
 ```
-
-After a run, traces appear in **AWS X-Ray → Traces** as a span waterfall showing model calls → tool calls → next model call.
 
 ---
 
@@ -393,7 +379,7 @@ After a run, traces appear in **AWS X-Ray → Traces** as a span waterfall showi
 ```
 ai-dlc-agent/
 ├── app/
-│   ├── main.py                       # CLI entry point + PII validation
+│   ├── main.py                       # CLI entry point
 │   ├── workflow.py                   # WorkflowOrchestrator
 │   ├── errors.py                     # ConfigurationError, SkillOutputError, PIIDetectedError
 │   ├── retry.py                      # @retry_with_backoff decorator
@@ -409,38 +395,25 @@ ai-dlc-agent/
 │   │   ├── scan_directory.py         # Lists directory contents
 │   │   ├── interactive_questions.py  # Renders clarifying questions in terminal
 │   │   ├── stage_tracker.py          # Tracks files written per stage
-│   │   └── pii_check.py              # LLM Guard PII scanner (lazy-loaded BERT NER)
+│   │   └── pii_check.py              # LLM Guard PII scanner (disabled by default)
 │   ├── hooks/
 │   │   ├── logging_hook.py           # Logs every tool call (before + after) to JSONL
-│   │   └── token_hook.py             # Counts input/output tokens across all invocations
+│   │   └── token_hook.py             # Counts input/output tokens
 │   └── observability/
 │       ├── logger.py                 # StructuredLogger → outputs/agent_trace.jsonl
-│       └── metrics.py                # CloudWatchMetrics → AI-DLC/StrandsAgent namespace
+│       └── metrics.py                # CloudWatchMetrics → AI-DLC/StrandsAgent
+├── agentcore_entrypoint.py           # AgentCore HTTP entrypoint (BedrockAgentCoreApp)
+├── agentcore/
+│   ├── agentcore.json                # AgentCore CLI runtime config
+│   └── aws-targets.json              # Deployment target (account + region)
 ├── data/
 │   └── dlc_activities.json           # AI-DLC phase/stage reference data
 ├── evals/
 │   ├── cases.json                    # Five evaluation test cases
 │   └── run_evals.py                  # Evaluation runner
-├── outputs/                          # Runtime output (git-ignored)
-├── requirements.txt
+├── pyproject.toml                    # uv project definition + dependencies
+├── requirements.txt                  # pip-compatible dependency list
 └── Dockerfile
-```
-
----
-
-## Docker
-
-```bash
-docker build -t ai-dlc-agent .
-
-docker run --rm \
-  -e AWS_REGION=us-east-1 \
-  -e AWS_ACCESS_KEY_ID=your_key \
-  -e AWS_SECRET_ACCESS_KEY=your_secret \
-  -v $(pwd)/..:/workspace \
-  ai-dlc-agent \
-  --repo kiro-sandbox/services/java-api \
-  --story "As a user, I want to reset my password"
 ```
 
 ---
@@ -450,14 +423,14 @@ docker run --rm \
 | Concept | Where |
 |---|---|
 | Basic agent anatomy (model, prompt, tools, state) | `inception_agent.py`, `construction_agent.py` |
-| Community tools (`strands-agents-tools`) | `file_read` in Inception + Construction agents |
-| MCP integration | `npx @modelcontextprotocol/server-filesystem` shared across agents, scoped to workspace root |
-| Skills (`@tool` functions) | `load_rule_file`, `write_aidlc_artifact`, `write_source_file`, `update_workflow_state`, `request_approval`, `scan_directory`, `pii_check` |
-| Steering | System prompt constraints + `.kiro/steering/aws-aidlc-rules/core-workflow.md` injected at build time; per-stage rules loaded on demand |
-| Hooks | `ToolCallLoggingHook` (JSONL trace), `TokenCountingHook` (token accumulation), `WriteInterruptHook` (approval before every MCP write) |
-| Interrupts | `WriteInterruptHook` — 60s approval window before every file write; orchestrator approval gate between every stage |
-| Retries | `@retry_with_backoff` on `load_rule_file`; keyword-based transient error retry in orchestrator (`ThrottlingException`, `ReadTimeoutError`, `modelStreamErrorException`) |
-| Multi-agent pattern | Two specialised agents driven sequentially by `WorkflowOrchestrator` with Python-level approval gates and inception context injection |
-| Evaluations | `evals/run_evals.py` — five cases, four evaluator classes (`StateFileEvaluator`, `AuditLogEvaluator`, `ClarificationEvaluator`, `SteeringViolationEvaluator`) |
-| Observability | JSONL trace log + CloudWatch metrics + Bedrock model invocation logging + OTEL/X-Ray distributed tracing |
-| PII protection | `llm-guard` Anonymize scanner on CLI inputs — blocks PERSON, EMAIL, SSN, credit card, and other sensitive entity types before they reach the agent |
+| Community tools (`strands-agents-tools`) | `file_read` in both agents |
+| MCP integration | `npx @modelcontextprotocol/server-filesystem` (CLI mode) |
+| Skills (`@tool` functions) | `load_rule_file`, `write_aidlc_artifact`, `write_source_file`, `update_workflow_state`, `request_approval`, `scan_directory` |
+| Steering | System prompt constraints; per-stage rules loaded on demand via `load_rule_file` |
+| Hooks | `ToolCallLoggingHook`, `TokenCountingHook`, `WriteInterruptHook` |
+| Interrupts | `WriteInterruptHook` (60s approval per file write); orchestrator approval gate per stage |
+| Retries | `@retry_with_backoff` on `load_rule_file`; keyword-based transient Bedrock error retry |
+| Multi-agent pattern | Two specialised agents driven by `WorkflowOrchestrator` with approval gates and inception context injection |
+| Evaluations | `evals/run_evals.py` — five cases, four evaluator classes |
+| Observability | JSONL trace + CloudWatch metrics + Bedrock invocation logging + OTEL/X-Ray |
+| AgentCore deployment | `agentcore_entrypoint.py` — `BedrockAgentCoreApp`, auto-approve, return-of-control, session management |

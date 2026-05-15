@@ -9,44 +9,45 @@ Invocation protocol
 -------------------
 Every call is a POST to /invocations with a JSON body.
 
-Start a new workflow:
+Start a new workflow (auto-approve mode — runs end-to-end, pauses only for questions):
     {
-        "action": "start",
-        "repo":   "kiro-sandbox/services/java-api",
-        "story":  "As a user, I want to update my profile",
-        "model_id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0"  # optional
+        "action":       "start",
+        "repo":         "kiro-sandbox/services/java-api",
+        "story":        "As a user, I want to update my profile",
+        "model_id":     "us.anthropic.claude-sonnet-4-5-20250929-v1:0",  # optional
+        "auto_approve": true   # default: true — skip per-stage approval gates
     }
 
-Approve the current stage and continue:
+Answer clarifying questions (only needed when status == "awaiting_answers"):
+    {
+        "action":     "answer",
+        "session_id": "<session_id from previous response>",
+        "answers":    "A2 B1 C3"
+    }
+
+Manual approve (only needed when auto_approve=false):
     {
         "action":     "approve",
-        "session_id": "<session_id from previous response>"
+        "session_id": "<session_id>"
     }
 
-Send feedback / request changes:
+Send feedback / request changes (only needed when auto_approve=false):
     {
         "action":     "feedback",
         "session_id": "<session_id>",
         "text":       "Please add input validation to the requirements"
     }
 
-Answer clarifying questions (requirements-analysis stage):
-    {
-        "action":     "answer",
-        "session_id": "<session_id>",
-        "answers":    "A2 B1 C3"
-    }
-
 Response shape
 --------------
 Every response contains:
     {
-        "status":       "awaiting_approval" | "awaiting_answers" | "complete" | "error",
+        "status":       "running" | "awaiting_answers" | "complete" | "error",
         "session_id":   "<uuid>",
-        "stage":        "<current stage name>",
-        "summary":      "<stage completion summary>",
+        "stage":        "<last completed stage name>",
+        "completed_stages": ["workspace-detection", ...],
         "artifacts":    [{"type": "artifact|source", "path": "..."}],
-        "questions_md": "<raw markdown of questions file, if awaiting_answers>",
+        "questions_md": "<raw markdown — only when status=awaiting_answers>",
         "result":       { ... }   # only when status == "complete"
         "error":        "..."     # only when status == "error"
     }
@@ -54,16 +55,17 @@ Every response contains:
 Differences from the CLI mode
 ------------------------------
 - No stdin / stdout interaction — all I/O is JSON over HTTP
+- auto_approve=true (default): all stage gates are skipped automatically;
+  the workflow only pauses when clarifying questions need answers
 - No MCP filesystem server (npx not available in AgentCore containers) —
   agents use write_aidlc_artifact / write_source_file / scan_directory directly
-- WriteInterruptHook is disabled — file writes are approved implicitly
+- WriteInterruptHook is disabled — file writes are auto-approved
 - Session state is persisted to /tmp/<session_id>/ between invocations
   (AgentCore sessions have a 15-minute inactivity timeout)
 """
 
 from __future__ import annotations
 
-import json
 import os
 import threading
 import uuid
@@ -92,79 +94,79 @@ _SESSIONS_LOCK = threading.Lock()
 
 
 class _SessionState:
-    """
-    Holds the mutable state for one workflow session.
+    """Holds the mutable state for one workflow session."""
 
-    The orchestrator runs one stage at a time. After each stage it pauses and
-    stores its state here. The next HTTP invocation resumes from this state.
-    """
-
-    def __init__(self, session_id: str, repo: str, story: str, model_id: str) -> None:
+    def __init__(
+        self,
+        session_id: str,
+        repo: str,
+        story: str,
+        model_id: str,
+        auto_approve: bool = True,
+    ) -> None:
         self.session_id = session_id
         self.repo = repo
         self.story = story
         self.model_id = model_id
+        self.auto_approve = auto_approve
 
-        # Pending approval gate — set by the stage runner, cleared by approve/feedback
+        # Gate state — populated when the workflow pauses
         self.pending_stage: str | None = None
-        self.pending_summary: str = ""
         self.pending_artifacts: list[tuple[str, str]] = []
         self.pending_questions_path: Path | None = None
-
-        # Feedback to inject into the next stage run (from "feedback" action)
-        self.pending_feedback: str | None = None
+        self.completed_stages: list[str] = []
 
         # Answers to inject into the questions file (from "answer" action)
         self.pending_answers: str | None = None
 
-        # Result when workflow completes
+        # Feedback for manual mode (from "feedback" action)
+        self.pending_feedback: str | None = None
+
+        # Final result / error
         self.final_result: dict[str, Any] | None = None
         self.error: str | None = None
 
-        # Background thread running the current stage
+        # Threading primitives
         self._thread: threading.Thread | None = None
         self._stage_done = threading.Event()
         self._approval_event = threading.Event()
         self._approval_value: bool = False
 
-        # Persisted output dir for this session
+        # Per-session output dir
         self.output_dir = str(_SESSION_DIR / session_id)
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
 
-    def wait_for_stage_pause(self, timeout: float = 300.0) -> bool:
-        """Block until the stage runner signals it needs approval. Returns False on timeout."""
+    # -- called by the HTTP handler to wait for the workflow to pause --
+
+    def wait_for_pause(self, timeout: float = 600.0) -> bool:
+        """Block until the workflow thread signals a pause. Returns False on timeout."""
         return self._stage_done.wait(timeout=timeout)
 
-    def signal_stage_paused(self) -> None:
-        """Called by the stage runner when it reaches an approval gate."""
+    # -- called by the workflow thread --
+
+    def signal_paused(self) -> None:
         self._stage_done.set()
 
-    def resume(self, approved: bool) -> None:
-        """Called by the HTTP handler to resume the stage runner."""
-        self._stage_done.clear()
-        self._approval_value = approved
-        self._approval_event.set()
-
-    def wait_for_approval(self, timeout: float = 600.0) -> bool:
-        """Called by the stage runner to block until the HTTP handler resumes it."""
+    def wait_for_resume(self, timeout: float = 600.0) -> bool:
+        """Block the workflow thread until the HTTP handler resumes it."""
         self._approval_event.wait(timeout=timeout)
         self._approval_event.clear()
         return self._approval_value
 
+    # -- called by the HTTP handler to resume the workflow thread --
+
+    def resume(self, approved: bool) -> None:
+        self._stage_done.clear()
+        self._approval_value = approved
+        self._approval_event.set()
+
 
 # ---------------------------------------------------------------------------
-# Headless orchestrator — no stdin, no MCP, no WriteInterruptHook
+# Headless orchestrator
 # ---------------------------------------------------------------------------
 
 def _build_headless_orchestrator(session: _SessionState) -> Any:
-    """
-    Build a WorkflowOrchestrator configured for headless AgentCore operation.
-
-    Key differences from CLI mode:
-    - output_dir points to the session's /tmp directory
-    - MCP tools are disabled (no npx in AgentCore containers)
-    - WriteInterruptHook is not added (file writes are auto-approved)
-    """
+    """Build a WorkflowOrchestrator with MCP and WriteInterruptHook disabled."""
     from app.workflow import WorkflowOrchestrator, RULES_BASE_PATH
 
     orchestrator = WorkflowOrchestrator(
@@ -172,22 +174,21 @@ def _build_headless_orchestrator(session: _SessionState) -> Any:
         output_dir=session.output_dir,
         rules_base_path=RULES_BASE_PATH,
     )
-    # Disable MCP — override _get_mcp_tools to return empty list
     orchestrator._get_mcp_tools = lambda: []  # type: ignore[method-assign]
     return orchestrator
 
 
 def _run_workflow_in_background(session: _SessionState) -> None:
     """
-    Run the full workflow in a background thread, pausing at each approval gate.
+    Run the full workflow in a background thread.
 
-    This function replaces the CLI's stdin-based _request_approval_python() with
-    an event-based mechanism that communicates with the HTTP handler.
+    Replaces _request_approval_python with a headless version that:
+    - auto-approves all stage gates when session.auto_approve is True
+    - pauses only when clarifying questions need answers (any mode)
+    - pauses at every gate when auto_approve is False (manual mode)
     """
     import app.workflow as wf_module
 
-    # Monkey-patch _request_approval_python for this session only.
-    # The patch intercepts every stage gate and uses threading events instead of stdin.
     original_approval = wf_module._request_approval_python
 
     def _headless_approval(stage: str, summary: str, target_repo: str = "") -> bool:
@@ -197,13 +198,15 @@ def _run_workflow_in_background(session: _SessionState) -> None:
         written = get_written()
         questions_path = _find_questions_file(target_repo) if target_repo else None
 
-        # Store gate state on the session object.
+        # Track completed stages for the response.
+        if stage not in session.completed_stages:
+            session.completed_stages.append(stage)
+
         session.pending_stage = stage
-        session.pending_summary = summary
         session.pending_artifacts = list(written)
         session.pending_questions_path = questions_path
 
-        # If there are unanswered questions and answers were provided, write them back.
+        # Write answers back into the questions file if provided.
         if questions_path and session.pending_answers:
             try:
                 from app.skills.interactive_questions import (
@@ -215,24 +218,36 @@ def _run_workflow_in_background(session: _SessionState) -> None:
                 questions = parse_questions(content)
                 unanswered = [q for q in questions if not q.answer]
                 labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                _parse_compact_answers(session.pending_answers, unanswered, labels)
+                _parse_compact_answers(session.pending_answers, unanswered, questions)
                 write_answers_back(questions_path, questions)
             except Exception:
                 pass
             session.pending_answers = None
 
-        # Signal the HTTP handler that we're paused.
-        session.signal_stage_paused()
+        # Determine whether to pause or auto-continue.
+        has_unanswered_questions = False
+        if questions_path and questions_path.exists() and stage == "requirements-analysis":
+            try:
+                from app.skills.interactive_questions import parse_questions
+                qs = parse_questions(questions_path.read_text(encoding="utf-8"))
+                has_unanswered_questions = any(not q.answer for q in qs)
+            except Exception:
+                pass
 
-        # Block until the HTTP handler calls session.resume().
-        approved = session.wait_for_approval(timeout=600.0)
+        # Always pause when there are unanswered questions — regardless of auto_approve.
+        if has_unanswered_questions:
+            session.signal_paused()
+            return session.wait_for_resume(timeout=600.0)
 
-        # If feedback was provided, inject it as a revision request.
+        # In auto_approve mode, skip the gate and continue immediately.
+        if session.auto_approve:
+            return True
+
+        # Manual mode — pause and wait for HTTP approval.
+        session.signal_paused()
+        approved = session.wait_for_resume(timeout=600.0)
         if not approved and session.pending_feedback:
-            # Returning False causes the orchestrator to log a rejection.
-            # The next invocation will re-run the stage with the feedback.
             session.pending_feedback = None
-
         return approved
 
     wf_module._request_approval_python = _headless_approval  # type: ignore[attr-defined]
@@ -247,10 +262,9 @@ def _run_workflow_in_background(session: _SessionState) -> None:
     except Exception as exc:
         session.error = str(exc)
     finally:
-        # Restore original function and signal completion.
         wf_module._request_approval_python = original_approval  # type: ignore[attr-defined]
         session.pending_stage = "__done__"
-        session.signal_stage_paused()
+        session.signal_paused()
 
 
 # ---------------------------------------------------------------------------
@@ -262,40 +276,49 @@ def invoke(payload: dict[str, Any], context: RequestContext) -> dict[str, Any]:
     """
     Main AgentCore invocation handler.
 
-    Accepts start / approve / feedback / answer actions and returns a
-    structured response describing the current workflow state.
+    Actions: start | answer | approve | feedback
     """
+    import json as _json
+    # agentcore invoke CLI wraps the payload as {"prompt": "<json string>"}
+    if "prompt" in payload and "action" not in payload:
+        try:
+            # The CLI may embed literal newlines in the JSON string; collapse them.
+            raw = payload["prompt"].replace("\n", " ").replace("\r", " ")
+            payload = _json.loads(raw)
+        except (ValueError, TypeError):
+            pass
+
     action = payload.get("action", "start")
     session_id = payload.get("session_id") or context.session_id or str(uuid.uuid4())
 
     # ------------------------------------------------------------------
-    # START — create a new session and kick off the workflow thread
+    # START
     # ------------------------------------------------------------------
     if action == "start":
         repo = payload.get("repo", "")
         story = payload.get("story", "")
-        model_id = payload.get("model_id", os.environ.get(
-            "MODEL_ID",
-            "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        ))
-
         if not repo or not story:
             return {
                 "status": "error",
-                "error": "Both 'repo' and 'story' are required for action='start'.",
+                "error": "'repo' and 'story' are required for action='start'.",
                 "session_id": session_id,
             }
+
+        model_id = payload.get("model_id", os.environ.get(
+            "MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        ))
+        auto_approve = payload.get("auto_approve", True)
 
         session = _SessionState(
             session_id=session_id,
             repo=repo,
             story=story,
             model_id=model_id,
+            auto_approve=auto_approve,
         )
         with _SESSIONS_LOCK:
             _ACTIVE_SESSIONS[session_id] = session
 
-        # Start the workflow in a background thread.
         thread = threading.Thread(
             target=_run_workflow_in_background,
             args=(session,),
@@ -305,12 +328,24 @@ def invoke(payload: dict[str, Any], context: RequestContext) -> dict[str, Any]:
         session._thread = thread
         thread.start()
 
-        # Wait for the first stage gate (or completion).
-        session.wait_for_stage_pause(timeout=300.0)
+        # In auto_approve mode the workflow runs to completion in the background.
+        # Return immediately so the HTTP client isn't left waiting for 7+ minutes.
+        # The caller can poll with action='approve' to check progress/completion.
+        if session.auto_approve:
+            return {
+                "status": "running",
+                "session_id": session_id,
+                "stage": "starting",
+                "completed_stages": [],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+        # Manual mode — wait for the first stage gate before returning.
+        session.wait_for_pause(timeout=600.0)
         return _build_response(session)
 
     # ------------------------------------------------------------------
-    # APPROVE / FEEDBACK / ANSWER — resume a paused session
+    # ANSWER / APPROVE / FEEDBACK — resume a paused session
     # ------------------------------------------------------------------
     with _SESSIONS_LOCK:
         session = _ACTIVE_SESSIONS.get(session_id)
@@ -318,36 +353,34 @@ def invoke(payload: dict[str, Any], context: RequestContext) -> dict[str, Any]:
     if session is None:
         return {
             "status": "error",
-            "error": f"Session '{session_id}' not found. Start a new workflow with action='start'.",
+            "error": f"Session '{session_id}' not found. Use action='start' to begin.",
             "session_id": session_id,
         }
 
-    if action == "approve":
+    if action == "answer":
+        session.pending_answers = payload.get("answers", "")
+        session.resume(approved=True)
+
+    elif action == "approve":
         session.resume(approved=True)
 
     elif action == "feedback":
         session.pending_feedback = payload.get("text", "")
         session.resume(approved=False)
 
-    elif action == "answer":
-        session.pending_answers = payload.get("answers", "")
-        session.resume(approved=True)
-
     else:
         return {
             "status": "error",
-            "error": f"Unknown action '{action}'. Valid: start, approve, feedback, answer.",
+            "error": f"Unknown action '{action}'. Valid: start, answer, approve, feedback.",
             "session_id": session_id,
         }
 
-    # Wait for the next gate.
-    session.wait_for_stage_pause(timeout=300.0)
+    session.wait_for_pause(timeout=600.0)
     return _build_response(session)
 
 
 def _build_response(session: _SessionState) -> dict[str, Any]:
     """Build the HTTP response from the current session state."""
-    # Workflow complete or errored.
     if session.pending_stage == "__done__":
         with _SESSIONS_LOCK:
             _ACTIVE_SESSIONS.pop(session.session_id, None)
@@ -356,19 +389,19 @@ def _build_response(session: _SessionState) -> dict[str, Any]:
             return {
                 "status": "error",
                 "session_id": session.session_id,
-                "stage": "workflow",
+                "completed_stages": session.completed_stages,
                 "error": session.error,
             }
         return {
             "status": "complete",
             "session_id": session.session_id,
-            "stage": "complete",
+            "completed_stages": session.completed_stages,
             "result": session.final_result or {},
         }
 
-    # Paused at an approval gate.
+    # Paused — check if it's for questions or manual approval.
     questions_md: str | None = None
-    status = "awaiting_approval"
+    status = "running" if session.auto_approve else "awaiting_approval"
 
     if session.pending_questions_path and session.pending_questions_path.exists():
         try:
@@ -381,7 +414,7 @@ def _build_response(session: _SessionState) -> dict[str, Any]:
         "status": status,
         "session_id": session.session_id,
         "stage": session.pending_stage or "unknown",
-        "summary": session.pending_summary[:500] if session.pending_summary else "",
+        "completed_stages": session.completed_stages,
         "artifacts": [
             {"type": ftype, "path": fpath}
             for ftype, fpath in (session.pending_artifacts or [])
@@ -394,15 +427,6 @@ def _build_response(session: _SessionState) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
-
-@app.ping
-def health() -> dict[str, Any]:
-    """Return healthy status with active session count."""
-    from bedrock_agentcore.runtime.models import PingStatus
-    with _SESSIONS_LOCK:
-        active = len(_ACTIVE_SESSIONS)
-    status = PingStatus.HEALTHY_BUSY if active > 0 else PingStatus.HEALTHY
-    return {"status": status, "active_sessions": active}
 
 
 # ---------------------------------------------------------------------------

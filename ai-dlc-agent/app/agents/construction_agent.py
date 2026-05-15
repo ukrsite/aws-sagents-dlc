@@ -170,7 +170,7 @@ def build_construction_agent(
             file_read,
             *mcp_tools,
         ],
-        conversation_manager=SlidingWindowConversationManager(window_size=40),
+        conversation_manager=SlidingWindowConversationManager(window_size=10),
         hooks=all_hooks,
         callback_handler=None,  # suppress streaming LLM output to stdout
     )

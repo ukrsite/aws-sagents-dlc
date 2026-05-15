@@ -381,13 +381,16 @@ def _request_approval_python(stage: str, summary: str, target_repo: str = "") ->
     return response.lower() in ("approve", "yes", "continue", "y", "ok", "", "skip")
 
 
-# Resolve rules path relative to the workspace root (parent of ai-dlc-agent/).
-# __file__ = .../ai-dlc-agent/app/workflow.py
-# .parent       = .../ai-dlc-agent/app/
-# .parent.parent = .../ai-dlc-agent/
-# .parent.parent.parent = workspace root (aws-sagents-dlc/)
-_WORKSPACE_ROOT = Path(__file__).parent.parent.parent.resolve()
-RULES_BASE_PATH = str(_WORKSPACE_ROOT / ".kiro/aws-aidlc-rule-details")
+# Resolve rules path: env var override takes priority, then look for kiro_rules/
+# bundled alongside the app package (container), then fall back to workspace root.
+_AGENT_DIR = Path(__file__).parent.parent.resolve()  # .../ai-dlc-agent/
+_WORKSPACE_ROOT = _AGENT_DIR.parent.resolve()         # .../aws-sagents-dlc/
+if "AIDLC_RULES_PATH" in os.environ and os.environ["AIDLC_RULES_PATH"]:
+    RULES_BASE_PATH = str(Path(os.environ["AIDLC_RULES_PATH"]))
+elif (_AGENT_DIR / "kiro_rules/aws-aidlc-rule-details").exists():
+    RULES_BASE_PATH = str(_AGENT_DIR / "kiro_rules/aws-aidlc-rule-details")
+else:
+    RULES_BASE_PATH = str(_WORKSPACE_ROOT / ".kiro/aws-aidlc-rule-details")
 
 
 class WorkflowOrchestrator:

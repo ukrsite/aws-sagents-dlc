@@ -10,14 +10,16 @@ from strands import tool
 from app.errors import SkillOutputError
 from app.retry import retry_with_backoff
 
-# Resolve the rules base path relative to the workspace root (parent of ai-dlc-agent/).
-# __file__ = .../ai-dlc-agent/app/skills/load_rule_file.py
-# .parent       = .../ai-dlc-agent/app/skills/
-# .parent.parent = .../ai-dlc-agent/app/
-# .parent.parent.parent = .../ai-dlc-agent/
-# .parent.parent.parent.parent = workspace root (aws-sagents-dlc/)
-_WORKSPACE_ROOT = Path(__file__).parent.parent.parent.parent.resolve()
-RULES_BASE_PATH = _WORKSPACE_ROOT / ".kiro/aws-aidlc-rule-details"
+# Resolve rules base path: env var override takes priority, then look for kiro_rules/
+# bundled alongside the app package (container), then fall back to workspace root.
+_AGENT_DIR = Path(__file__).parent.parent.parent.resolve()  # .../ai-dlc-agent/
+_WORKSPACE_ROOT = _AGENT_DIR.parent.resolve()                # .../aws-sagents-dlc/
+if "AIDLC_RULES_PATH" in os.environ and os.environ["AIDLC_RULES_PATH"]:
+    RULES_BASE_PATH = Path(os.environ["AIDLC_RULES_PATH"])
+elif (_AGENT_DIR / "kiro_rules/aws-aidlc-rule-details").exists():
+    RULES_BASE_PATH = _AGENT_DIR / "kiro_rules/aws-aidlc-rule-details"
+else:
+    RULES_BASE_PATH = _WORKSPACE_ROOT / ".kiro/aws-aidlc-rule-details"
 
 # Core workflow file — loaded at agent startup.
 CORE_WORKFLOW_PATH = _WORKSPACE_ROOT / ".kiro/steering/aws-aidlc-rules/core-workflow.md"

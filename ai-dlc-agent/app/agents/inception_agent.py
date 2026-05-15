@@ -67,7 +67,7 @@ def build_inception_agent(
         model=model,
         system_prompt=system_prompt,
         tools=[load_rule_file, update_workflow_state, scan_directory, request_approval, write_aidlc_artifact, file_read, *mcp_tools],
-        conversation_manager=SlidingWindowConversationManager(window_size=40),
+        conversation_manager=SlidingWindowConversationManager(window_size=10),
         hooks=hooks,
         callback_handler=None,  # suppress streaming LLM output to stdout
     )

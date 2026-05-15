@@ -381,16 +381,62 @@ def _request_approval_python(stage: str, summary: str, target_repo: str = "") ->
     return response.lower() in ("approve", "yes", "continue", "y", "ok", "", "skip")
 
 
-# Resolve rules path relative to the workspace root (parent of ai-dlc-agent/).
-# __file__ = .../ai-dlc-agent/app/workflow.py
-# .parent       = .../ai-dlc-agent/app/
-# .parent.parent = .../ai-dlc-agent/
-# .parent.parent.parent = workspace root (aws-sagents-dlc/)
-_WORKSPACE_ROOT = Path(__file__).parent.parent.parent.resolve()
-RULES_BASE_PATH = str(_WORKSPACE_ROOT / ".kiro/aws-aidlc-rule-details")
+# Resolve rules path: env var override takes priority, then look for kiro_rules/
+# bundled alongside the app package (container), then fall back to workspace root.
+_AGENT_DIR = Path(__file__).parent.parent.resolve()  # .../ai-dlc-agent/
+_WORKSPACE_ROOT = _AGENT_DIR.parent.resolve()         # .../aws-sagents-dlc/
+if "AIDLC_RULES_PATH" in os.environ and os.environ["AIDLC_RULES_PATH"]:
+    RULES_BASE_PATH = str(Path(os.environ["AIDLC_RULES_PATH"]))
+elif (_AGENT_DIR / "kiro_rules/aws-aidlc-rule-details").exists():
+    RULES_BASE_PATH = str(_AGENT_DIR / "kiro_rules/aws-aidlc-rule-details")
+else:
+    RULES_BASE_PATH = str(_WORKSPACE_ROOT / ".kiro/aws-aidlc-rule-details")
 
 
-class WorkflowOrchestrator:
+def _get_skipped_stages(target_repo: str) -> set[str]:
+    """
+    Parse the execution plan to find stages explicitly marked SKIP.
+
+    Reads ``{target_repo}/aidlc-docs/inception/plans/execution-plan.md`` and
+    looks for lines matching the pattern ``**Stage Name** - SKIP``.
+    Returns a set of orchestrator stage keys to skip.
+    """
+    plan_path = (
+        Path(target_repo) / "aidlc-docs" / "inception" / "plans" / "execution-plan.md"
+    )
+    if not plan_path.exists():
+        return set()
+
+    # Map plan text fragments (lowercase, no markdown) → orchestrator stage keys
+    _STAGE_MAP = {
+        "application design":     "application-design",
+        "units generation":       "units-generation",
+        "units planning":         "units-generation",   # alternate label
+        "functional design":      "functional-design",
+        "nfr requirements":       "nfr-requirements",
+        "nfr design":             "nfr-design",
+        "infrastructure design":  "infrastructure-design",
+        "user stories":           "user-stories",
+    }
+
+    skipped: set[str] = set()
+    try:
+        import re
+        text = plan_path.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            # Match lines like: - [ ] **Application Design** - SKIP
+            # or Mermaid nodes:  AD["Application Design<br/><b>SKIP</b>"]
+            if "skip" not in line.lower():
+                continue
+            # Strip markdown bold markers and HTML tags, lowercase
+            clean = re.sub(r"\*\*|<[^>]+>", "", line).lower()
+            for fragment, stage_key in _STAGE_MAP.items():
+                if fragment in clean:
+                    skipped.add(stage_key)
+    except OSError:
+        pass
+
+    return skipped
     """
     Top-level orchestrator for the AI-DLC Strands Agent.
 
@@ -508,24 +554,8 @@ class WorkflowOrchestrator:
         hooks = [logging_hook, self._token_hook]
 
         try:
-            # Build sub-agents.
-            inception_agent = build_inception_agent(
-                model_id=self.model_id,
-                mcp_tools=mcp_tools,
-                shared_state=self.shared_state,
-                hooks=hooks,
-                rules_base_path=self.rules_base_path,
-            )
-            construction_agent = build_construction_agent(
-                model_id=self.model_id,
-                mcp_tools=mcp_tools,
-                shared_state=self.shared_state,
-                hooks=hooks,
-                rules_base_path=self.rules_base_path,
-            )
-
             # --- INCEPTION PHASE ---
-            # Run one stage at a time. Python controls the approval gate between stages.
+            # Build a fresh agent per stage to keep conversation history minimal.
             inception_start = time.monotonic()
             inception_stages = [
                 "workspace-detection",
@@ -539,13 +569,29 @@ class WorkflowOrchestrator:
 
             # Determine which stages are already complete.
             completed = self._get_completed_stages(abs_target_repo)
+            # Stages the execution plan says to skip (populated after workflow-planning).
+            plan_skips: set[str] = _get_skipped_stages(abs_target_repo)
 
             for stage in inception_stages:
                 if stage in completed:
                     _print_skip(stage)
                     continue
 
+                if stage in plan_skips:
+                    _print_skip(f"{stage} (plan: SKIP)")
+                    continue
+
                 _print_stage_start(stage)
+
+                # Fresh agent per stage — no accumulated conversation history.
+                inception_agent = build_inception_agent(
+                    model_id=self.model_id,
+                    mcp_tools=mcp_tools,
+                    shared_state=self.shared_state,
+                    hooks=hooks,
+                    rules_base_path=self.rules_base_path,
+                )
+
                 stage_result = _run_stage_with_retry(
                     agent=inception_agent,
                     stage=stage,
@@ -602,9 +648,18 @@ class WorkflowOrchestrator:
                                       "timestamp": datetime.now(timezone.utc).isoformat()})
                     break
 
-                # Check if workflow-planning says to skip remaining stages.
+                # After workflow-planning, read the execution plan to find stages to skip.
                 if stage == "workflow-planning":
                     completed = self._get_completed_stages(abs_target_repo)
+                    plan_skips = _get_skipped_stages(abs_target_repo)
+                    if plan_skips:
+                        try:
+                            from rich.console import Console
+                            Console().print(
+                                f"  [dim]📋  Execution plan: skipping {', '.join(sorted(plan_skips))}[/dim]"
+                            )
+                        except ImportError:
+                            print(f"  📋  Skipping per plan: {', '.join(sorted(plan_skips))}", flush=True)
 
             inception_duration_ms = (time.monotonic() - inception_start) * 1000
             self.shared_state["inception"]["status"] = "complete"
@@ -626,13 +681,28 @@ class WorkflowOrchestrator:
             inception_context = _build_inception_context(abs_target_repo)
 
             completed = self._get_completed_stages(abs_target_repo)
+            # Re-read plan skips — execution plan is now fully written.
+            plan_skips = _get_skipped_stages(abs_target_repo)
 
             for stage in construction_stages:
                 if stage in completed:
                     _print_skip(stage)
                     continue
 
+                if stage in plan_skips:
+                    _print_skip(f"{stage} (plan: SKIP)")
+                    continue
+
                 _print_stage_start(stage)
+
+                # Fresh agent per stage — no accumulated conversation history.
+                construction_agent = build_construction_agent(
+                    model_id=self.model_id,
+                    mcp_tools=mcp_tools,
+                    shared_state=self.shared_state,
+                    hooks=hooks,
+                    rules_base_path=self.rules_base_path,
+                )
 
                 # For code-generation, add explicit instruction to write source files.
                 code_gen_hint = ""
@@ -711,19 +781,9 @@ class WorkflowOrchestrator:
             self.shared_state["construction"]["duration_ms"] = round(construction_duration_ms, 2)
             self._checkpoint_state()
 
-            # Collect token usage from both agents.
-            total_input = 0
-            total_output = 0
-            for agent in (inception_agent, construction_agent):
-                try:
-                    usage = agent.event_loop_metrics.accumulated_usage
-                    total_input += int(usage.get("inputTokens", 0))
-                    total_output += int(usage.get("outputTokens", 0))
-                except Exception:
-                    pass
-            if total_input == 0 and total_output == 0:
-                total_input = self._token_hook.input_tokens
-                total_output = self._token_hook.output_tokens
+            # Token usage is accumulated by TokenCountingHook across all agent instances.
+            total_input = self._token_hook.input_tokens
+            total_output = self._token_hook.output_tokens
             self.shared_state["session_metrics"]["input_tokens"] = total_input
             self.shared_state["session_metrics"]["output_tokens"] = total_output
             self.shared_state["session_metrics"]["total_tokens"] = total_input + total_output

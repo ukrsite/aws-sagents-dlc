@@ -182,9 +182,9 @@ def main() -> None:
             out = m.get("output_tokens", 0)
             duration_s = m.get("total_duration_ms", 0) / 1000
 
-            # Estimate cost: Claude Sonnet 4.5 pricing (approximate)
-            # $3 / 1M input tokens, $15 / 1M output tokens
-            cost_usd = (inp / 1_000_000 * 3.0) + (out / 1_000_000 * 15.0)
+            # Estimate cost: Claude Haiku 4.5 pricing
+            # $1.00 / 1M input tokens, $5.00 / 1M output tokens
+            cost_usd = (inp / 1_000_000 * 1.0) + (out / 1_000_000 * 5.0)
 
             token_line = (
                 f"[bold]{total:,}[/bold] total  "

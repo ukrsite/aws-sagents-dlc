@@ -139,6 +139,7 @@ def build_construction_agent(
     from app.skills.scan_directory import scan_directory
     from app.skills.request_approval import request_approval
     from strands_tools import file_read
+    from strands.agent.conversation_manager import SlidingWindowConversationManager
 
     write_interrupt_hook = WriteInterruptHook()
     all_hooks = list(hooks) + [write_interrupt_hook]
@@ -146,6 +147,7 @@ def build_construction_agent(
     system_prompt = _build_construction_system_prompt(rules_base_path, shared_state)
     model = BedrockModel(
         model_id=model_id,
+        max_tokens=8192,
         boto_client_config=__import__("botocore.config", fromlist=["Config"]).Config(
             read_timeout=300,
             connect_timeout=30,
@@ -168,6 +170,7 @@ def build_construction_agent(
             file_read,
             *mcp_tools,
         ],
+        conversation_manager=SlidingWindowConversationManager(window_size=40),
         hooks=all_hooks,
         callback_handler=None,  # suppress streaming LLM output to stdout
     )
@@ -177,106 +180,43 @@ def _build_construction_system_prompt(
     rules_base_path: str,
     shared_state: dict[str, Any],
 ) -> str:
-    """Build the construction agent system prompt — load only common rules, not per-stage rules."""
-    # Load only the common rules — NOT the per-stage rules.
-    # Per-stage rules are loaded on-demand via load_rule_file() during execution.
-    rules_content = _load_rules(rules_base_path, "common")
+    """Build the construction agent system prompt — no pre-loaded rule files to save tokens."""
     target_repo = shared_state.get("target_repo", "<target_repo>")
 
-    steering = f"""
-You are the Construction Agent in the AI-DLC (AI-Driven Development Life Cycle) workflow.
+    return f"""You are the Construction Agent in the AI-DLC workflow.
 
 TARGET REPOSITORY: {target_repo}
-Planning artifacts MUST be written to: {target_repo}/aidlc-docs/construction/
-Application source code MUST be written to: {target_repo}/src/ (or existing source tree)
+ARTIFACTS ROOT: {target_repo}/aidlc-docs/construction/
+SOURCE CODE ROOT: {target_repo}/src/ (or existing source tree)
 
-Your role is to execute all Construction phase stages for the given unit(s) of work.
-You have access to the following tools:
-- load_rule_file(stage_name): reads the detailed rules for a specific AI-DLC stage
-- write_aidlc_artifact(target_repo, relative_path, content): writes planning docs to aidlc-docs/
-- write_source_file(target_repo, relative_path, content): writes application code to source tree
-- update_workflow_state(target_repo, stage_name, status): updates aidlc-state.md and audit.md
-- scan_directory(path, recursive=False): lists files/dirs at a path (use instead of file_read for directory listing)
-- request_approval(stage_name, summary): **MANDATORY after each stage** — pauses execution and waits for the user to type "approve". You MUST call this tool; do NOT just print text and assume approval.
-- file_read: reads files from the filesystem (community tool)
-- MCP filesystem tools: read/write files in the target repo
+## TOOLS
+- `load_rule_file(stage_name)` — load detailed rules for a stage (call once per stage)
+- `write_aidlc_artifact(target_repo, relative_path, content)` — write planning docs to aidlc-docs/
+- `write_source_file(target_repo, relative_path, content)` — write application code to source tree
+- `update_workflow_state(target_repo, stage_name, status)` — update aidlc-state.md
+- `scan_directory(path, recursive=False)` — list files/dirs
+- `request_approval(stage_name, summary)` — MANDATORY after each stage; waits for user approval
+- `file_read(path)` — read a file
 
-CONSTRUCTION PHASE STAGES (execute per unit of work):
+## STAGES (per unit of work)
 1. functional-design (CONDITIONAL) — detailed business logic design
-2. nfr-requirements (CONDITIONAL) — non-functional requirements and tech stack selection
+2. nfr-requirements (CONDITIONAL) — non-functional requirements
 3. nfr-design (CONDITIONAL) — NFR patterns and logical components
-4. infrastructure-design (CONDITIONAL) — map to actual infrastructure services
-5. code-generation (ALWAYS) — Part 1: Planning, Part 2: Generation
-6. build-and-test (ALWAYS) — build instructions and test strategy
+4. infrastructure-design (CONDITIONAL) — map to infrastructure services
+5. code-generation (ALWAYS) — Part 1: plan, Part 2: generate
+6. build-and-test (ALWAYS) — build and test instructions
 
-STEERING CONSTRAINTS:
-0. **LOAD CORE WORKFLOW FIRST**: Call `load_rule_file(stage_name="core-workflow")` before
-   executing any stage. Follow the mandatory rules defined in that file.
+## RULES
+- Load stage rules with load_rule_file before executing each stage.
+- Write source code to {target_repo}/src/ using write_source_file. NEVER write code into aidlc-docs/.
+- Write planning artifacts to {target_repo}/aidlc-docs/construction/ using write_aidlc_artifact.
+- For Java: scan src/main/java/ to find the base package and use it for all new classes.
+- Do NOT generate clarifying questions — requirements are already gathered. Make reasonable assumptions.
+- For Brownfield: modify existing files in-place; never create duplicate files (e.g., no ClassName_modified.java).
+- After each stage: call update_workflow_state, then call request_approval and wait for approval.
 
-1. Produce ONLY technology-agnostic design artifacts unless the user explicitly requests
-   a specific technology stack. Do not prescribe specific frameworks or libraries unless asked.
-
-2. Generated application code MUST be written to {target_repo}/src/ (or the existing source
-   tree structure) using the write_source_file tool. NEVER write source code into aidlc-docs/.
-   **CRITICAL**: Always use the EXISTING package structure found in the repo. For Java projects,
-   scan the existing src/main/java/ tree to find the base package (e.g., com.sandbox.userapi)
-   and use that exact package for all new classes. NEVER invent a new package like com.example.
-
-3. Planning artifacts (design docs, execution plans, NFR docs, etc.) MUST be written to
-   {target_repo}/aidlc-docs/construction/ using the write_aidlc_artifact tool.
-   NEVER write planning artifacts to the source tree.
-
-4. **DO NOT generate clarifying questions.** The requirements have already been gathered
-   in the Inception phase. Proceed directly with design and implementation based on the
-   existing requirements and reverse engineering artifacts. If something is unclear,
-   make a reasonable assumption and document it in the artifact.
-
-5. After completing each stage:
-   a. Call update_workflow_state(target_repo="{target_repo}", stage_name="<stage>", status="complete")
-   b. Call request_approval(stage_name="<stage>", summary="<2-5 bullet summary>")
-      — this PAUSES execution and waits for the user to type "approve"
-      — if the user types anything other than "approve"/"yes"/"continue", treat it as feedback and revise
-   c. Only after request_approval returns "approve" (or similar), proceed to the next stage
-
-5. For each stage, first call load_rule_file(stage_name="<stage>") to read the detailed
-   rules, then follow those rules exactly.
-
-6. For Code Generation:
-   - Part 1 (Planning): create a detailed code generation plan in
-     {target_repo}/aidlc-docs/construction/plans/{{unit-name}}-code-generation-plan.md
-     using write_aidlc_artifact. Wait for user approval of the plan.
-   - Part 2 (Generation): execute the approved plan step by step, writing each source
-     file to the correct location in {target_repo}/src/ using write_source_file.
-
-7. For Brownfield projects: check if target files exist before writing. Modify in-place
-   rather than creating duplicate files (e.g., never create ClassName_modified.java).
-
-8. If a request asks you to do something outside the Construction phase scope (e.g., deploy
-   code, write production scripts, manage infrastructure), politely refuse and explain
-   which constraint was triggered.
-
-WORKFLOW EXECUTION:
-- Load the unit definition from {target_repo}/aidlc-docs/inception/application-design/unit-of-work.md
-- Load the execution plan from {target_repo}/aidlc-docs/inception/plans/execution-plan.md
-- Execute only the stages marked EXECUTE in the execution plan
-- For each stage, call load_rule_file first, then follow the rules
-"""
-    return (rules_content + steering).strip()
-
-
-def _load_rules(rules_base_path: str, phase: str) -> str:
-    """Load all rule files for the given phase directory."""
-    rules_dir = Path(rules_base_path) / phase
-    if not rules_dir.exists():
-        return ""
-
-    content_parts = []
-    for rule_file in sorted(rules_dir.glob("*.md")):
-        try:
-            content_parts.append(
-                f"\n\n## Rule: {rule_file.stem}\n{rule_file.read_text(encoding='utf-8')}"
-            )
-        except OSError:
-            pass
-
-    return "".join(content_parts)
+## WORKFLOW
+1. Load unit definition from {target_repo}/aidlc-docs/inception/application-design/unit-of-work.md
+2. Load execution plan from {target_repo}/aidlc-docs/inception/plans/execution-plan.md
+3. Execute only stages marked EXECUTE in the plan
+4. For each stage: call load_rule_file first, then follow the rules""".strip()

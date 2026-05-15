@@ -1,0 +1,32 @@
+================================================================================
+AGENTCORE INVOKE LOG
+Agent: aidlcagent
+Runtime ARN: arn:aws:bedrock-agentcore:us-east-1:922060081651:runtime/aidlcagent_aidlcagent-GYGZ5sAxEy
+Region: us-east-1
+Session ID: none
+Started: 2026-05-14T20:58:31.607Z
+================================================================================
+
+[23:58:31.608] INVOKE REQUEST (Session: none)
+
+--- REQUEST ---
+{
+  "timestamp": "2026-05-14T20:58:31.608Z",
+  "agent": "aidlcagent",
+  "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:922060081651:runtime/aidlcagent_aidlcagent-GYGZ5sAxEy",
+  "region": "us-east-1",
+  "prompt": "{\"action\":\"start\",\"repo\":\"kiro-sandbox/services/java-api\",\"story\":\"As a user, I want to update my\n  profile\",\"model_id\":\"us.anthropic.claude-haiku-4-5-20251001-v1:0\",\"auto_approve\":true}"
+}
+--- END REQUEST ---
+
+[00:06:20.243] INVOKE RESPONSE (468635ms)
+
+--- RESPONSE ---
+{
+  "timestamp": "2026-05-14T21:06:20.243Z",
+  "durationMs": 468635,
+  "success": true,
+  "response": "{\n  \"target_repo\": \"/var/kiro-sandbox/services/java-api\",\n  \"user_story\": \"As a user, I want to update my   profile\",\n  \"inception\": {\n    \"status\": \"not_started\",\n    \"completed_stages\": [],\n    \"artifact_paths\": {},\n    \"duration_ms\": 0\n  },\n  \"construction\": {\n    \"status\": \"not_started\",\n    \"completed_stages\": [],\n    \"artifact_paths\": {},\n    \"source_files_written\": [],\n    \"duration_ms\": 0\n  },\n  \"session_metrics\": {\n    \"total_tool_calls\": 0,\n    \"total_retries\": 0,\n    \"total_tokens\": 0,\n    \"total_duration_ms\": 462784.68,\n    \"total_stages_completed\": 0,\n    \"input_tokens\": 0,\n    \"output_tokens\": 0\n  },\n  \"error\": \"Workflow failed: Agent has reached an unrecoverable state due to max_tokens limit. For more information see: https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception\"\n}"
+}
+--- END RESPONSE ---
+

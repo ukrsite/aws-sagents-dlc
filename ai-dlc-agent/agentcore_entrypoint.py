@@ -278,6 +278,16 @@ def invoke(payload: dict[str, Any], context: RequestContext) -> dict[str, Any]:
 
     Actions: start | answer | approve | feedback
     """
+    import json as _json
+    # agentcore invoke CLI wraps the payload as {"prompt": "<json string>"}
+    if "prompt" in payload and "action" not in payload:
+        try:
+            # The CLI may embed literal newlines in the JSON string; collapse them.
+            raw = payload["prompt"].replace("\n", " ").replace("\r", " ")
+            payload = _json.loads(raw)
+        except (ValueError, TypeError):
+            pass
+
     action = payload.get("action", "start")
     session_id = payload.get("session_id") or context.session_id or str(uuid.uuid4())
 
@@ -318,8 +328,19 @@ def invoke(payload: dict[str, Any], context: RequestContext) -> dict[str, Any]:
         session._thread = thread
         thread.start()
 
-        # In auto_approve mode the workflow runs until it hits questions or finishes.
-        # Wait up to 10 minutes for the first pause point.
+        # In auto_approve mode the workflow runs to completion in the background.
+        # Return immediately so the HTTP client isn't left waiting for 7+ minutes.
+        # The caller can poll with action='approve' to check progress/completion.
+        if session.auto_approve:
+            return {
+                "status": "running",
+                "session_id": session_id,
+                "stage": "starting",
+                "completed_stages": [],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+        # Manual mode — wait for the first stage gate before returning.
         session.wait_for_pause(timeout=600.0)
         return _build_response(session)
 
@@ -406,17 +427,6 @@ def _build_response(session: _SessionState) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
-
-@app.ping
-def health() -> dict[str, Any]:
-    """Return healthy/busy status based on active session count."""
-    from bedrock_agentcore.runtime.models import PingStatus
-    with _SESSIONS_LOCK:
-        active = len(_ACTIVE_SESSIONS)
-    return {
-        "status": PingStatus.HEALTHY_BUSY if active > 0 else PingStatus.HEALTHY,
-        "active_sessions": active,
-    }
 
 
 # ---------------------------------------------------------------------------
