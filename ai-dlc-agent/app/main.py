@@ -106,6 +106,11 @@ def main() -> None:
         help=f"Bedrock model ID (default: {DEFAULT_MODEL_ID}, or MODEL_ID env var)",
     )
     parser.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="Auto-approve all stages without user interaction (unattended mode)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Validate environment and print config without invoking agents",
@@ -134,16 +139,21 @@ def main() -> None:
     #     print(f"PII check failed: {exc}", file=sys.stderr)
     #     sys.exit(1)
 
-    orchestrator = WorkflowOrchestrator(model_id=args.model_id)
+    orchestrator = WorkflowOrchestrator(
+        model_id=args.model_id,
+        auto_approve=args.auto_approve,  # Use CLI flag
+    )
 
     try:
         from rich.console import Console
         from rich.panel import Panel
+        mode_display = "[yellow]Auto-approve (unattended)[/yellow]" if args.auto_approve else "Interactive"
         Console().print(
             Panel(
                 f"[bold]Repo:[/bold]  {args.repo}\n"
                 f"[bold]Story:[/bold] {args.story}\n"
-                f"[bold]Model:[/bold] {args.model_id}",
+                f"[bold]Model:[/bold] {args.model_id}\n"
+                f"[bold]Mode:[/bold]  {mode_display}",
                 title="[bold cyan]🚀  AI-DLC Agent starting...[/bold cyan]",
                 border_style="cyan",
             )
@@ -180,16 +190,27 @@ def main() -> None:
             total = m.get("total_tokens", 0)
             inp = m.get("input_tokens", 0)
             out = m.get("output_tokens", 0)
+            cache_read = m.get("cache_read_tokens", 0)
+            cache_creation = m.get("cache_creation_tokens", 0)
             duration_s = m.get("total_duration_ms", 0) / 1000
 
             # Estimate cost: Claude Haiku 4.5 pricing
             # $1.00 / 1M input tokens, $5.00 / 1M output tokens
-            cost_usd = (inp / 1_000_000 * 1.0) + (out / 1_000_000 * 5.0)
+            # Cache reads: $0.10 / 1M tokens (90% discount)
+            # Cache writes: $1.25 / 1M tokens (25% premium)
+            cost_usd = (
+                (inp / 1_000_000 * 1.0) +
+                (out / 1_000_000 * 5.0) +
+                (cache_read / 1_000_000 * 0.1) +
+                (cache_creation / 1_000_000 * 1.25)
+            )
 
             token_line = (
                 f"[bold]{total:,}[/bold] total  "
                 f"([cyan]{inp:,}[/cyan] in + [yellow]{out:,}[/yellow] out)"
             )
+            if cache_read > 0 or cache_creation > 0:
+                token_line += f"\n             [dim]Cache:[/dim] [green]{cache_read:,}[/green] read + [blue]{cache_creation:,}[/blue] write"
             if cost_usd > 0:
                 token_line += f"  ≈ [dim]${cost_usd:.4f}[/dim]"
 

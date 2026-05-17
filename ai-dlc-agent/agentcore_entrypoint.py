@@ -14,7 +14,7 @@ Start a new workflow (auto-approve mode — runs end-to-end, pauses only for que
         "action":       "start",
         "repo":         "kiro-sandbox/services/java-api",
         "story":        "As a user, I want to update my profile",
-        "model_id":     "us.anthropic.claude-sonnet-4-5-20250929-v1:0",  # optional
+        "model_id":     "us.anthropic.claude-haiku-4-5-20251001-v1:0",  # optional
         "auto_approve": true   # default: true — skip per-stage approval gates
     }
 
@@ -173,6 +173,7 @@ def _build_headless_orchestrator(session: _SessionState) -> Any:
         model_id=session.model_id,
         output_dir=session.output_dir,
         rules_base_path=RULES_BASE_PATH,
+        auto_approve=True,  # AgentCore mode: auto-fill questions
     )
     orchestrator._get_mcp_tools = lambda: []  # type: ignore[method-assign]
     return orchestrator
@@ -305,7 +306,7 @@ def invoke(payload: dict[str, Any], context: RequestContext) -> dict[str, Any]:
             }
 
         model_id = payload.get("model_id", os.environ.get(
-            "MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         ))
         auto_approve = payload.get("auto_approve", True)
 

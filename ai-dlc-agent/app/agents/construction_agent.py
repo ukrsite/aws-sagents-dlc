@@ -102,6 +102,7 @@ def build_construction_agent(
     shared_state: dict[str, Any],
     hooks: list,
     rules_base_path: str = ".kiro/aws-aidlc-rule-details",
+    max_output_tokens: int = 8192,
 ) -> Agent:
     """
     Build and return the Construction_Agent.
@@ -145,9 +146,10 @@ def build_construction_agent(
     all_hooks = list(hooks) + [write_interrupt_hook]
 
     system_prompt = _build_construction_system_prompt(rules_base_path, shared_state)
+
     model = BedrockModel(
         model_id=model_id,
-        max_tokens=8192,
+        max_tokens=max_output_tokens,
         boto_client_config=__import__("botocore.config", fromlist=["Config"]).Config(
             read_timeout=300,
             connect_timeout=30,
@@ -170,7 +172,7 @@ def build_construction_agent(
             file_read,
             *mcp_tools,
         ],
-        conversation_manager=SlidingWindowConversationManager(window_size=10),
+        conversation_manager=SlidingWindowConversationManager(window_size=30),
         hooks=all_hooks,
         callback_handler=None,  # suppress streaming LLM output to stdout
     )
@@ -214,6 +216,12 @@ SOURCE CODE ROOT: {target_repo}/src/ (or existing source tree)
 - Do NOT generate clarifying questions — requirements are already gathered. Make reasonable assumptions.
 - For Brownfield: modify existing files in-place; never create duplicate files (e.g., no ClassName_modified.java).
 - After each stage: call update_workflow_state, then call request_approval and wait for approval.
+
+## CRITICAL: BROWNFIELD COST OPTIMIZATION
+- **If feature already exists and is complete**: Do NOT perform extensive validation. Write a concise summary and exit.
+- **Extensive multi-step validation is EXTREMELY EXPENSIVE** (consumes 2M+ tokens). Only validate if code generation is actually needed.
+- **Quick existence check**: Read 1-2 key files to determine if feature exists. If yes, write brief confirmation and stop.
+- **Token budget**: Aim for <50K tokens per stage. Avoid reading large numbers of files unless generating new code.
 
 ## WORKFLOW
 1. Load unit definition from {target_repo}/aidlc-docs/inception/application-design/unit-of-work.md

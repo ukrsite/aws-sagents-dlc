@@ -15,6 +15,8 @@ def build_inception_agent(
     shared_state: dict[str, Any],
     hooks: list,
     rules_base_path: str = ".kiro/aws-aidlc-rule-details",
+    max_output_tokens: int = 8192,
+    auto_approve: bool = False,
 ) -> Agent:
     """
     Build and return the Inception_Agent.
@@ -38,6 +40,7 @@ def build_inception_agent(
         shared_state: Mutable shared state dict (includes ``target_repo``).
         hooks: List of HookProvider instances (ToolCallLoggingHook, TokenCountingHook).
         rules_base_path: Base path to AI-DLC rule detail files.
+        auto_approve: If True (AgentCore), auto-fill questions. If False (CLI), blank for user input.
 
     Returns:
         Configured Strands Agent instance.
@@ -50,10 +53,11 @@ def build_inception_agent(
     from strands_tools import file_read
     from strands.agent.conversation_manager import SlidingWindowConversationManager
 
-    system_prompt = _build_inception_system_prompt(rules_base_path, shared_state)
+    system_prompt = _build_inception_system_prompt(rules_base_path, shared_state, auto_approve)
+
     model = BedrockModel(
         model_id=model_id,
-        max_tokens=8192,
+        max_tokens=max_output_tokens,
         boto_client_config=__import__("botocore.config", fromlist=["Config"]).Config(
             read_timeout=300,
             connect_timeout=30,
@@ -67,7 +71,7 @@ def build_inception_agent(
         model=model,
         system_prompt=system_prompt,
         tools=[load_rule_file, update_workflow_state, scan_directory, request_approval, write_aidlc_artifact, file_read, *mcp_tools],
-        conversation_manager=SlidingWindowConversationManager(window_size=10),
+        conversation_manager=SlidingWindowConversationManager(window_size=30),
         hooks=hooks,
         callback_handler=None,  # suppress streaming LLM output to stdout
     )
@@ -76,10 +80,23 @@ def build_inception_agent(
 def _build_inception_system_prompt(
     rules_base_path: str,
     shared_state: dict[str, Any],
+    auto_approve: bool = False,
 ) -> str:
     """Build the inception agent system prompt — no pre-loaded rule files to save tokens."""
     target_repo = shared_state.get("target_repo", "<target_repo>")
     user_story = shared_state.get("user_story", "<user_story>")
+
+    question_generation_mode = (
+        "**AUTO-APPROVE MODE (AgentCore/Serverless)**\n"
+        "   Generate questions WITH reasonable default answers pre-filled.\n"
+        "   Choose the most standard/common option (typically B for complexity, exact match for identifiers).\n"
+        "   Format each answer as: [Answer]: B) Option text"
+    ) if auto_approve else (
+        "**INTERACTIVE MODE (CLI)**\n"
+        "   Generate questions WITH [Answer]: tag but leave the answer BLANK.\n"
+        "   Format: [Answer]: (empty line after colon)\n"
+        "   Users will fill in answers interactively."
+    )
 
     return f"""You are the Inception Agent in the AI-DLC workflow.
 
@@ -108,6 +125,7 @@ ARTIFACTS ROOT: {target_repo}/aidlc-docs/inception/
 3. requirements-analysis (ALWAYS) — produce requirements.md + requirement-verification-questions.md
    - Max 5 questions. First question MUST be implementation complexity (A=PoC, B=Standard, C=Enterprise, D=Other).
    - Each question needs 3-4 lettered options. No questions about logging/monitoring/edge cases.
+   - CRITICAL: {question_generation_mode}
 4. user-stories (CONDITIONAL) — create stories.md and personas.md
 5. workflow-planning (ALWAYS) — produce execution-plan.md
 6. application-design (CONDITIONAL) — produce component design artifacts
@@ -123,5 +141,5 @@ ARTIFACTS ROOT: {target_repo}/aidlc-docs/inception/
 1. Call load_rule_file(stage_name="workspace-detection") — if it fails, skip and continue
 2. Call scan_directory(path="{target_repo}", recursive=False)
 3. Determine Greenfield vs Brownfield
-4. Write {target_repo}/aidlc-docs/aidlc-state.md with initial state
+4. Call update_workflow_state(target_repo="{target_repo}", stage_name="workspace-detection", status="complete")
 5. Call request_approval to present findings""".strip()

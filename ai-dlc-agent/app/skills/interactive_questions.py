@@ -21,7 +21,7 @@ class Question:
     text: str                                      # question body
     options: list[QuestionOption] = field(default_factory=list)
     considerations: list[str] = field(default_factory=list)
-    answer: str = ""                               # filled in by user
+    answer: str | None = None                      # filled in by user; None means unanswered
 
 
 def parse_questions(content: str) -> list[Question]:
@@ -51,10 +51,11 @@ def parse_questions(content: str) -> list[Question]:
                 number = heading_match.group(1).strip()
                 title = heading_match.group(2).strip() or f"Question {number}"
             else:
-                heading_match = re.search(r"##\s+\d+\.\s+(.+)", block)
+                # Try "## Q1. Title" or "## 1. Title" format
+                heading_match = re.search(r"##\s+Q?(\d+)\.\s+(.+)", block, re.IGNORECASE)
                 if heading_match:
-                    number = str(len(questions) + 1)
-                    title = heading_match.group(1).strip()
+                    number = heading_match.group(1).strip()
+                    title = heading_match.group(2).strip()
                 else:
                     continue
         else:
@@ -85,7 +86,7 @@ def parse_questions(content: str) -> list[Question]:
             if text and len(text) > 5:
                 considerations.append(text)
 
-        answer_match = re.search(r"\[Answer\]:\s*(.+?)(?:\n|$)", block)
+        answer_match = re.search(r"\[Answer\]:\s*(.*)$", block, re.MULTILINE)
         existing_answer = answer_match.group(1).strip() if answer_match else ""
 
         questions.append(Question(
@@ -197,6 +198,14 @@ def run_interactive_questions(questions_path: Path) -> bool:
     unanswered = [q for q in questions if not q.answer]
 
     if not unanswered:
+        try:
+            from rich.console import Console
+            Console().print(
+                "\n[dim]ℹ️  All clarifying questions already have answers (resuming previous session).[/dim]\n"
+                f"[dim]   Review answers in: {questions_path}[/dim]\n"
+            )
+        except ImportError:
+            print(f"\nℹ️  All questions already answered. Review: {questions_path}\n", flush=True)
         return True
 
     # Cap at 6 questions to keep it concise.

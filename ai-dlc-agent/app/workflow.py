@@ -17,7 +17,17 @@ from app.hooks.token_hook import TokenCountingHook
 from app.observability.logger import StructuredLogger
 from app.observability.metrics import CloudWatchMetrics
 
-DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+DEFAULT_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+DEFAULT_MAX_OUTPUT_TOKENS = 8192
+
+
+def _max_output_tokens() -> int:
+    """Bedrock max output tokens per model turn (override via AIDLC_MAX_OUTPUT_TOKENS)."""
+    raw = os.environ.get("AIDLC_MAX_OUTPUT_TOKENS", str(DEFAULT_MAX_OUTPUT_TOKENS))
+    try:
+        return max(1024, int(raw))
+    except ValueError:
+        return DEFAULT_MAX_OUTPUT_TOKENS
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +178,128 @@ def _find_questions_file(target_repo: str) -> "Path | None":
     return None
 
 
+def _count_repo_source_files(target_repo: str) -> int:
+    """Count application source files under the target repo (excludes aidlc-docs, etc.)."""
+    root = Path(target_repo)
+    if not root.is_dir():
+        return 0
+    skip_dirs = {
+        "aidlc-docs",
+        ".git",
+        ".venv",
+        "node_modules",
+        "__pycache__",
+        "chart",
+        ".workspaces",
+    }
+    extensions = {".py", ".java", ".ts", ".js", ".go", ".kt", ".rb"}
+    count = 0
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix not in extensions:
+            continue
+        if any(part in skip_dirs for part in path.parts):
+            continue
+        count += 1
+    return count
+
+
+def _reverse_engineering_artifact_paths(abs_target_repo: str) -> list[str]:
+    """
+    Relative paths under aidlc-docs/ to produce during reverse-engineering.
+
+    All 9 artifacts are REQUIRED for brownfield cost optimization, regardless of repo size.
+    Without code-structure.md and api-documentation.md, the code-generation stage cannot
+    check if features already exist, leading to $4-10 wasted per workflow.
+    """
+    return [
+        "inception/reverse-engineering/business-overview.md",
+        "inception/reverse-engineering/architecture.md",
+        "inception/reverse-engineering/code-structure.md",
+        "inception/reverse-engineering/api-documentation.md",
+        "inception/reverse-engineering/component-inventory.md",
+        "inception/reverse-engineering/technology-stack.md",
+        "inception/reverse-engineering/dependencies.md",
+        "inception/reverse-engineering/code-quality-assessment.md",
+        "inception/reverse-engineering/reverse-engineering-timestamp.md",
+    ]
+
+
+def _prompt_reverse_engineering_artifact(
+    abs_target_repo: str,
+    user_story: str,
+    relative_path: str,
+    *,
+    first_turn: bool,
+) -> str:
+    """One artifact per model turn to stay within max_tokens output limit."""
+    read_step = (
+        "1. Call load_rule_file(stage_name=\"reverse-engineering\") and skim scope.\n"
+        "2. Use scan_directory and file_read on key entrypoints only (not the whole tree).\n"
+    ) if first_turn else (
+        "1. Use file_read only if you still need context from the previous turn.\n"
+    )
+    return (
+        f"Execute the 'reverse-engineering' stage for:\n"
+        f"Target repository: {abs_target_repo}\n"
+        f"User story: {user_story}\n\n"
+        f"OUTPUT LIMIT: Use exactly ONE write_aidlc_artifact call in this turn.\n"
+        f"Keep the file concise (aim for under 120 lines). Use bullets; avoid huge diagrams.\n\n"
+        f"{read_step}"
+        f"3. Write ONLY this file with write_aidlc_artifact:\n"
+        f"   relative_path=\"{relative_path}\"\n"
+        f"4. Do NOT call update_workflow_state yet.\n"
+        f"5. Do NOT call request_approval.\n"
+        f"6. Do NOT write any other artifacts in this turn."
+    )
+
+
+def _prompt_reverse_engineering_complete(abs_target_repo: str) -> str:
+    return (
+        f"Reverse-engineering artifacts for {abs_target_repo} are written.\n"
+        f"Call update_workflow_state(target_repo=\"{abs_target_repo}\", "
+        f"stage_name=\"reverse-engineering\", status=\"complete\") ONLY.\n"
+        f"Do not write files or call request_approval."
+    )
+
+
+def _run_reverse_engineering_stage(
+    agent: Any,
+    abs_target_repo: str,
+    user_story: str,
+    logger: Any,
+) -> Any:
+    """
+    Run reverse-engineering as multiple agent turns (one artifact per turn).
+
+    Prevents MaxTokensReachedException from batching many large write_aidlc_artifact
+    tool calls in a single model response.
+    """
+    last_result: Any = None
+    paths = _reverse_engineering_artifact_paths(abs_target_repo)
+    for i, rel_path in enumerate(paths):
+        last_result = _run_stage_with_retry(
+            agent=agent,
+            stage="reverse-engineering",
+            abs_target_repo=abs_target_repo,
+            user_story=user_story,
+            logger=logger,
+            custom_prompt=_prompt_reverse_engineering_artifact(
+                abs_target_repo,
+                user_story,
+                rel_path,
+                first_turn=(i == 0),
+            ),
+        )
+    return _run_stage_with_retry(
+        agent=agent,
+        stage="reverse-engineering",
+        abs_target_repo=abs_target_repo,
+        user_story=user_story,
+        logger=logger,
+        custom_prompt=_prompt_reverse_engineering_complete(abs_target_repo),
+    ) or last_result
+
+
 def _run_stage_with_retry(
     agent: Any,
     stage: str,
@@ -212,6 +344,29 @@ def _run_stage_with_retry(
                 botocore.exceptions.ReadTimeoutError,
                 Exception) as exc:
             err_str = str(exc)
+            if "max_tokens" in err_str.lower() and attempt < max_retries:
+                wait = attempt * 5
+                try:
+                    from rich.console import Console
+                    Console().print(
+                        f"  [yellow]⚠  Output token limit hit — retrying '{stage}' "
+                        f"with a smaller scope (attempt {attempt + 1}/{max_retries})...[/yellow]"
+                    )
+                except ImportError:
+                    print(
+                        f"  ⚠  max_tokens limit — retrying {stage} "
+                        f"(attempt {attempt + 1}/{max_retries})...",
+                        flush=True,
+                    )
+                prompt = (
+                    f"Continue stage '{stage}' for {abs_target_repo}.\n"
+                    f"Your previous response exceeded the output token limit.\n"
+                    f"Use at most ONE write_aidlc_artifact call with concise content "
+                    f"(under 80 lines). Then update_workflow_state if this stage is complete.\n"
+                    f"User story context: {user_story}"
+                )
+                time.sleep(wait)
+                continue
             # Only retry on known transient errors
             transient = any(kw in err_str for kw in (
                 "modelStreamErrorException",
@@ -238,12 +393,18 @@ def _run_stage_with_retry(
     raise last_exc  # type: ignore
 
 
-def _request_approval_python(stage: str, summary: str, target_repo: str = "") -> bool:
+def _request_approval_python(stage: str, summary: str, target_repo: str = "", auto_approve: bool = False) -> bool:
     """
     Python-level approval gate — blocks stdin until the user responds.
     If a requirement-verification-questions.md file exists, displays questions
     interactively and collects answers before asking for approval.
     Returns True if approved, False if rejected.
+
+    Args:
+        stage: Stage name
+        summary: Stage summary text
+        target_repo: Target repository path
+        auto_approve: If True, skip approval prompts and return True immediately
     """
     import signal
     from app.skills.interactive_questions import run_interactive_questions
@@ -264,6 +425,15 @@ def _request_approval_python(stage: str, summary: str, target_repo: str = "") ->
             Console().print(f"  [dim]⏭  No artifacts written — auto-skipping approval for: {stage}[/dim]")
         except ImportError:
             print(f"  ⏭  No artifacts — skipping: {stage}", flush=True)
+        return True
+
+    # If auto-approve mode, skip interactive approval.
+    if auto_approve:
+        try:
+            from rich.console import Console
+            Console().print(f"  [dim]✓  Auto-approved: {stage}[/dim]")
+        except ImportError:
+            print(f"  ✓  Auto-approved: {stage}", flush=True)
         return True
     try:
         from rich.console import Console
@@ -393,6 +563,55 @@ else:
     RULES_BASE_PATH = str(_WORKSPACE_ROOT / ".kiro/aws-aidlc-rule-details")
 
 
+def _get_units_of_work(target_repo: str) -> list[dict[str, str]]:
+    """
+    Parse unit-of-work.md to extract units for per-unit construction loop.
+
+    Returns list of unit dicts with 'name' and 'description' keys.
+    If no units file exists or parsing fails, returns single default unit.
+    """
+    uow_path = (
+        Path(target_repo) / "aidlc-docs" / "inception" / "application-design" / "unit-of-work.md"
+    )
+
+    if not uow_path.exists():
+        # No units file - treat entire project as single unit
+        return [{"name": "default", "description": "Single unit of work (no decomposition)"}]
+
+    try:
+        content = uow_path.read_text(encoding="utf-8")
+        units = []
+
+        # Parse ONLY numbered unit sections: "## Unit-1:" or "## Unit 1:" or "### Service-2:"
+        # Do NOT match generic section headings like "## Unit Responsibilities"
+        import re
+        for match in re.finditer(
+            r"(?:##|###)\s+(?:Unit|Service|Module)[-\s]*(\d+)\s*:\s+(.+?)(?:\n|$)",
+            content,
+            re.IGNORECASE
+        ):
+            unit_number = match.group(1)
+            name = match.group(2).strip()
+            # Try to find description in next few lines
+            desc_start = match.end()
+            desc_end = content.find("\n##", desc_start)
+            if desc_end == -1:
+                desc_end = desc_start + 500
+            desc_block = content[desc_start:desc_end].strip()
+            # Take first paragraph as description
+            desc = desc_block.split("\n\n")[0].strip()[:200]
+            if name:
+                units.append({"name": name, "description": desc or f"Unit {unit_number}: {name}"})
+
+        if units:
+            return units
+    except Exception:
+        pass
+
+    # Fallback to single unit
+    return [{"name": "default", "description": "Single unit of work"}]
+
+
 def _get_skipped_stages(target_repo: str) -> set[str]:
     """
     Parse the execution plan to find stages explicitly marked SKIP.
@@ -437,6 +656,9 @@ def _get_skipped_stages(target_repo: str) -> set[str]:
         pass
 
     return skipped
+
+
+class WorkflowOrchestrator:
     """
     Top-level orchestrator for the AI-DLC Strands Agent.
 
@@ -450,6 +672,8 @@ def _get_skipped_stages(target_repo: str) -> set[str]:
         model_id: Amazon Bedrock model identifier.
         output_dir: Directory for session state checkpoints and trace logs.
         rules_base_path: Path to the AI-DLC rule-details directory.
+        auto_approve: If True (AgentCore mode), auto-fill clarifying questions.
+                     If False (CLI mode), display questions interactively.
     """
 
     def __init__(
@@ -457,10 +681,13 @@ def _get_skipped_stages(target_repo: str) -> set[str]:
         model_id: str = DEFAULT_MODEL_ID,
         output_dir: str = "outputs",
         rules_base_path: str = RULES_BASE_PATH,
+        auto_approve: bool = False,
     ) -> None:
         self.model_id = model_id
         self.output_dir = output_dir
         self.rules_base_path = rules_base_path
+        self.auto_approve = auto_approve
+        self.max_output_tokens = _max_output_tokens()
 
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -525,7 +752,7 @@ def _get_skipped_stages(target_repo: str) -> set[str]:
         }
 
         # Check for existing session state (resumption).
-        resumption_info = self._check_resumption(target_repo)
+        resumption_info = self._check_resumption(abs_target_repo)
         if resumption_info:
             self._logger.log({
                 "type": "resumption",
@@ -590,15 +817,61 @@ def _get_skipped_stages(target_repo: str) -> set[str]:
                     shared_state=self.shared_state,
                     hooks=hooks,
                     rules_base_path=self.rules_base_path,
+                    max_output_tokens=self.max_output_tokens,
+                    auto_approve=self.auto_approve,
                 )
 
-                stage_result = _run_stage_with_retry(
-                    agent=inception_agent,
-                    stage=stage,
-                    abs_target_repo=abs_target_repo,
-                    user_story=user_story,
-                    logger=self._logger,
-                )
+                if stage == "reverse-engineering":
+                    stage_result = _run_reverse_engineering_stage(
+                        agent=inception_agent,
+                        abs_target_repo=abs_target_repo,
+                        user_story=user_story,
+                        logger=self._logger,
+                    )
+                else:
+                    stage_result = _run_stage_with_retry(
+                        agent=inception_agent,
+                        stage=stage,
+                        abs_target_repo=abs_target_repo,
+                        user_story=user_story,
+                        logger=self._logger,
+                    )
+
+                # After reverse-engineering, validate that ALL 9 required artifacts were written.
+                # If any are missing, fail the stage with clear error message.
+                if stage == "reverse-engineering":
+                    re_dir = Path(abs_target_repo) / "aidlc-docs/inception/reverse-engineering"
+                    required_artifacts = [
+                        "business-overview.md",
+                        "architecture.md",
+                        "code-structure.md",
+                        "api-documentation.md",
+                        "component-inventory.md",
+                        "technology-stack.md",
+                        "dependencies.md",
+                        "code-quality-assessment.md",
+                        "reverse-engineering-timestamp.md",
+                    ]
+                    missing = [f for f in required_artifacts if not (re_dir / f).exists()]
+                    if missing:
+                        try:
+                            from rich.console import Console
+                            Console().print(
+                                f"\n[red]❌ REVERSE-ENGINEERING VALIDATION FAILED[/red]\n\n"
+                                f"[yellow]Missing {len(missing)}/{len(required_artifacts)} required artifacts:[/yellow]\n"
+                                + "\n".join(f"  • {f}" for f in missing) + "\n\n"
+                                f"[dim]These files are REQUIRED for brownfield cost optimization.[/dim]\n"
+                                f"[dim]Without them, code-generation will waste $4-10 per workflow.[/dim]\n\n"
+                                f"[yellow]Agent wrote: {list((re_dir).glob('*.md')) if re_dir.exists() else 'No files'}[/yellow]\n"
+                            )
+                        except ImportError:
+                            print(f"\n❌ VALIDATION FAILED: Missing {len(missing)} artifacts: {missing}\n", flush=True)
+                        raise ValueError(
+                            f"Reverse-engineering stage failed validation: "
+                            f"Missing {len(missing)}/{len(required_artifacts)} required artifacts: {missing}. "
+                            f"Agent must write ALL 9 artifacts, not just summary.md. "
+                            f"Update .kiro/aws-aidlc-rule-details/inception/reverse-engineering.md if needed."
+                        )
 
                 # After requirements-analysis, ensure the questions file was written.
                 # If the agent skipped it, ask it to generate the file explicitly.
@@ -642,11 +915,17 @@ def _get_skipped_stages(target_repo: str) -> set[str]:
                         )
 
                 # Python-level approval gate — reliable stdin blocking.
-                approved = _request_approval_python(stage, str(stage_result), abs_target_repo)
+                approved = _request_approval_python(stage, str(stage_result), abs_target_repo, self.auto_approve)
                 if not approved:
                     self._logger.log({"type": "stage_rejected", "stage": stage,
                                       "timestamp": datetime.now(timezone.utc).isoformat()})
                     break
+
+                # Ensure stage is recorded as complete (agent may not have called update_workflow_state).
+                from app.skills.update_workflow_state import update_workflow_state
+                completed_check = self._get_completed_stages(abs_target_repo)
+                if stage not in completed_check:
+                    update_workflow_state(target_repo=abs_target_repo, stage_name=stage, status="complete")
 
                 # After workflow-planning, read the execution plan to find stages to skip.
                 if stage == "workflow-planning":
@@ -668,113 +947,240 @@ def _get_skipped_stages(target_repo: str) -> set[str]:
 
             # --- CONSTRUCTION PHASE ---
             construction_start = time.monotonic()
-            construction_stages = [
+
+            # Per-unit stages (run once per unit)
+            per_unit_stages = [
                 "functional-design",
                 "nfr-requirements",
                 "nfr-design",
                 "infrastructure-design",
                 "code-generation",
-                "build-and-test",
             ]
+
+            # Post-unit stage (runs once after all units)
+            post_unit_stage = "build-and-test"
 
             # Build inception context summary to pass to every construction stage.
             inception_context = _build_inception_context(abs_target_repo)
+
+            # Get units of work from inception phase
+            units = _get_units_of_work(abs_target_repo)
+
+            try:
+                from rich.console import Console
+                Console().print(
+                    f"\n[bold cyan]📦  Construction Phase:[/bold cyan] "
+                    f"[yellow]{len(units)} unit(s) of work[/yellow]"
+                )
+                for idx, unit in enumerate(units, 1):
+                    Console().print(f"  [dim]{idx}. {unit['name']}[/dim]")
+            except ImportError:
+                print(f"\n📦  Construction: {len(units)} unit(s)", flush=True)
 
             completed = self._get_completed_stages(abs_target_repo)
             # Re-read plan skips — execution plan is now fully written.
             plan_skips = _get_skipped_stages(abs_target_repo)
 
-            for stage in construction_stages:
-                if stage in completed:
-                    _print_skip(stage)
-                    continue
+            # Optimization: For single-unit projects, skip unit-level tracking overhead
+            # Use simple stage names instead of "stage-unit-1" to reduce complexity
+            single_unit_mode = (len(units) == 1)
 
-                if stage in plan_skips:
-                    _print_skip(f"{stage} (plan: SKIP)")
-                    continue
+            # Per-unit construction loop
+            for unit_idx, unit in enumerate(units, 1):
+                unit_name = unit["name"]
+                unit_desc = unit["description"]
 
-                _print_stage_start(stage)
+                # Only show unit header for multi-unit projects
+                if not single_unit_mode:
+                    try:
+                        from rich.console import Console
+                        Console().print(
+                            f"\n[bold magenta]▶  Unit {unit_idx}/{len(units)}:[/bold magenta] "
+                            f"[cyan]{unit_name}[/cyan]"
+                        )
+                    except ImportError:
+                        print(f"\n▶  Unit {unit_idx}/{len(units)}: {unit_name}", flush=True)
 
-                # Fresh agent per stage — no accumulated conversation history.
+                for stage in per_unit_stages:
+                    # Generate stage key for completion tracking
+                    # Single-unit: use simple name (code-generation)
+                    # Multi-unit: use indexed name (code-generation-unit-2)
+                    stage_key = stage if single_unit_mode else f"{stage}-unit-{unit_idx}"
+                    stage_display = stage if single_unit_mode else f"{stage} (unit {unit_idx})"
+
+                    if stage_key in completed:
+                        _print_skip(stage_display)
+                        continue
+
+                    if stage in plan_skips:
+                        skip_msg = f"{stage} (plan: SKIP)" if single_unit_mode else f"{stage} (unit {unit_idx}, plan: SKIP)"
+                        _print_skip(skip_msg)
+                        continue
+
+                    _print_stage_start(stage_display)
+
+                    # Fresh agent per stage — no accumulated conversation history.
+                    construction_agent = build_construction_agent(
+                        model_id=self.model_id,
+                        mcp_tools=mcp_tools,
+                        shared_state=self.shared_state,
+                        hooks=hooks,
+                        rules_base_path=self.rules_base_path,
+                        max_output_tokens=self.max_output_tokens,
+                    )
+
+                    # For code-generation, add explicit instruction to write source files.
+                    code_gen_hint = ""
+                    if stage == "code-generation":
+                        # Check project type from state
+                        state_path = Path(abs_target_repo) / "aidlc-docs" / "aidlc-state.md"
+                        is_brownfield = False
+                        if state_path.exists():
+                            state_content = state_path.read_text(encoding="utf-8")
+                            is_brownfield = "brownfield" in state_content.lower()
+
+                        if is_brownfield:
+                            code_gen_hint = (
+                                "\n\n🚨 MANDATORY BROWNFIELD CHECK (READ THIS FIRST):\n"
+                                "1. Read ONLY 2 files: reverse-engineering/code-structure.md + api-documentation.md\n"
+                                "2. Check if user story feature exists: endpoint + service method + tests\n"
+                                "3. IF ALL EXIST: Write code-generation-skipped.md saying 'Feature complete, found [X, Y, Z]' → EXIT IMMEDIATELY\n"
+                                "4. IF MISSING: Generate ONLY missing parts using write_source_file\n"
+                                "⚠️ DO NOT create planning documents, DO NOT validate existing code, DO NOT use >50K tokens for check.\n"
+                                "⚠️ Skipping this wastes $2-10. You MUST check existence BEFORE doing anything else."
+                            )
+                        else:
+                            code_gen_hint = (
+                                "\n\nGREENFIELD: Write source code files using write_source_file.\n"
+                                "Generate main service/module and entry point for the feature."
+                            )
+
+                    stage_result = _run_stage_with_retry(
+                        agent=construction_agent,
+                        stage=stage,
+                        abs_target_repo=abs_target_repo,
+                        user_story=user_story,
+                        logger=self._logger,
+                        is_construction=True,
+                        custom_prompt=(
+                            f"Execute the '{stage}' stage for:\n"
+                            f"Target repository: {abs_target_repo}\n"
+                            f"User story: {user_story}\n\n"
+                            f"UNIT OF WORK (focus on this unit):\n"
+                            f"  Name: {unit_name}\n"
+                            f"  Description: {unit_desc}\n"
+                            f"  Unit {unit_idx} of {len(units)} total units\n\n"
+                            f"INCEPTION PHASE CONTEXT:\n{inception_context}\n\n"
+                            f"Execute ONLY this single stage for the unit '{unit_name}'. "
+                            f"Write all planning artifacts using write_aidlc_artifact. "
+                            f"Write source code using write_source_file. "
+                            f"Call update_workflow_state when done. "
+                            f"Do NOT call request_approval — the orchestrator handles approval."
+                            f"{code_gen_hint}"
+                        ),
+                    )
+
+                    # After code-generation, verify source files were actually written.
+                    if stage == "code-generation":
+                        from app.skills.stage_tracker import get_written
+                        source_files = [f for t, f in get_written() if t == "source"]
+                        artifacts = [f for t, f in get_written() if t == "artifact"]
+
+                        # Check if agent explicitly skipped code generation (brownfield feature exists)
+                        skip_marker_exists = any("code-generation-skipped" in f for f in artifacts)
+
+                        if not source_files and not skip_marker_exists:
+                            try:
+                                from rich.console import Console
+                                Console().print(
+                                    "  [yellow]⚠  No source files written — retrying code generation...[/yellow]"
+                                )
+                            except ImportError:
+                                print("  ⚠  No source files — retrying code generation...", flush=True)
+                            _run_stage_with_retry(
+                                agent=construction_agent,
+                                stage="code-generation-retry",
+                                abs_target_repo=abs_target_repo,
+                                user_story=user_story,
+                                logger=self._logger,
+                                is_construction=True,
+                                custom_prompt=(
+                                    f"Generate source code for unit '{unit_name}': {unit_desc}\n"
+                                    f"User story: {user_story}\n"
+                                    f"Target repository: {abs_target_repo}\n\n"
+                                    f"INCEPTION CONTEXT:\n{inception_context}\n\n"
+                                    f"You MUST write source files using write_source_file. "
+                                    f"The existing source tree is shown in the inception context above — "
+                                    f"use the EXACT same language, structure, and directory paths. "
+                                    f"Do NOT introduce new packages or modules outside the existing structure.\n\n"
+                                    f"At minimum, create the main service/module and any required entry points "
+                                    f"for the unit '{unit_name}' described above.\n\n"
+                                    f"Use write_source_file with target_repo='{abs_target_repo}' and "
+                                    f"relative_path matching the existing source tree structure shown above.\n"
+                                    f"Do NOT call update_workflow_state or request_approval."
+                                ),
+                            )
+                        elif skip_marker_exists:
+                            try:
+                                from rich.console import Console
+                                Console().print(
+                                    "  [dim]✓  Feature already exists — skipped code generation (cost optimization)[/dim]"
+                                )
+                            except ImportError:
+                                print("  ✓  Feature exists — skipped generation", flush=True)
+
+                    approved = _request_approval_python(stage_display, str(stage_result), abs_target_repo, self.auto_approve)
+                    if not approved:
+                        self._logger.log({"type": "stage_rejected", "stage": stage_key,
+                                          "timestamp": datetime.now(timezone.utc).isoformat()})
+                        break
+
+                    # Ensure stage is recorded as complete with unit-specific key.
+                    completed_check = self._get_completed_stages(abs_target_repo)
+                    if stage_key not in completed_check:
+                        update_workflow_state(target_repo=abs_target_repo, stage_name=stage_key, status="complete")
+
+            # Post-unit stage: build-and-test (runs once after all units)
+            if post_unit_stage not in completed and post_unit_stage not in plan_skips:
+                _print_stage_start(post_unit_stage)
+
                 construction_agent = build_construction_agent(
                     model_id=self.model_id,
                     mcp_tools=mcp_tools,
                     shared_state=self.shared_state,
                     hooks=hooks,
                     rules_base_path=self.rules_base_path,
+                    max_output_tokens=self.max_output_tokens,
                 )
-
-                # For code-generation, add explicit instruction to write source files.
-                code_gen_hint = ""
-                if stage == "code-generation":
-                    code_gen_hint = (
-                        "\n\nCRITICAL: You MUST write actual source code files using "
-                        "write_source_file. Do NOT skip code generation because of missing "
-                        "prerequisites — use the inception artifacts above as your design input. "
-                        "Write at minimum the main service/module and entry point for the feature."
-                    )
 
                 stage_result = _run_stage_with_retry(
                     agent=construction_agent,
-                    stage=stage,
+                    stage=post_unit_stage,
                     abs_target_repo=abs_target_repo,
                     user_story=user_story,
                     logger=self._logger,
                     is_construction=True,
                     custom_prompt=(
-                        f"Execute the '{stage}' stage for:\n"
+                        f"Execute the '{post_unit_stage}' stage for:\n"
                         f"Target repository: {abs_target_repo}\n"
                         f"User story: {user_story}\n\n"
+                        f"ALL UNITS COMPLETE: {len(units)} unit(s) have been implemented.\n\n"
                         f"INCEPTION PHASE CONTEXT:\n{inception_context}\n\n"
-                        f"Execute ONLY this single stage. Write all planning artifacts using "
-                        f"write_aidlc_artifact. Write source code using write_source_file. "
+                        f"Build and test the complete implementation for all units. "
+                        f"Write all artifacts using write_aidlc_artifact. "
                         f"Call update_workflow_state when done. "
                         f"Do NOT call request_approval — the orchestrator handles approval."
-                        f"{code_gen_hint}"
                     ),
                 )
 
-                # After code-generation, verify source files were actually written.
-                if stage == "code-generation":
-                    from app.skills.stage_tracker import get_written
-                    source_files = [f for t, f in get_written() if t == "source"]
-                    if not source_files:
-                        try:
-                            from rich.console import Console
-                            Console().print(
-                                "  [yellow]⚠  No source files written — retrying code generation...[/yellow]"
-                            )
-                        except ImportError:
-                            print("  ⚠  No source files — retrying code generation...", flush=True)
-                        _run_stage_with_retry(
-                            agent=construction_agent,
-                            stage="code-generation-retry",
-                            abs_target_repo=abs_target_repo,
-                            user_story=user_story,
-                            logger=self._logger,
-                            is_construction=True,
-                            custom_prompt=(
-                                f"Generate source code for the user story: {user_story}\n"
-                                f"Target repository: {abs_target_repo}\n\n"
-                                f"INCEPTION CONTEXT:\n{inception_context}\n\n"
-                                f"You MUST write source files using write_source_file. "
-                                f"The existing source tree is shown in the inception context above — "
-                                f"use the EXACT same language, structure, and directory paths. "
-                                f"Do NOT introduce new packages or modules outside the existing structure.\n\n"
-                                f"At minimum, create the main service/module and any required entry points "
-                                f"for the feature described in the user story.\n\n"
-                                f"3. Any required DTOs or model updates\n\n"
-                                f"Use write_source_file with target_repo='{abs_target_repo}' and "
-                                f"relative_path matching the existing source tree structure shown above.\n"
-                                f"Do NOT call update_workflow_state or request_approval."
-                            ),
-                        )
-
-                approved = _request_approval_python(stage, str(stage_result), abs_target_repo)
-                if not approved:
-                    self._logger.log({"type": "stage_rejected", "stage": stage,
+                approved = _request_approval_python(post_unit_stage, str(stage_result), abs_target_repo, self.auto_approve)
+                if approved:
+                    completed_check = self._get_completed_stages(abs_target_repo)
+                    if post_unit_stage not in completed_check:
+                        update_workflow_state(target_repo=abs_target_repo, stage_name=post_unit_stage, status="complete")
+                else:
+                    self._logger.log({"type": "stage_rejected", "stage": post_unit_stage,
                                       "timestamp": datetime.now(timezone.utc).isoformat()})
-                    break
 
             construction_duration_ms = (time.monotonic() - construction_start) * 1000
             self.shared_state["construction"]["status"] = "complete"
@@ -784,9 +1190,13 @@ def _get_skipped_stages(target_repo: str) -> set[str]:
             # Token usage is accumulated by TokenCountingHook across all agent instances.
             total_input = self._token_hook.input_tokens
             total_output = self._token_hook.output_tokens
+            cache_read = self._token_hook.cache_read_tokens
+            cache_creation = self._token_hook.cache_creation_tokens
             self.shared_state["session_metrics"]["input_tokens"] = total_input
             self.shared_state["session_metrics"]["output_tokens"] = total_output
             self.shared_state["session_metrics"]["total_tokens"] = total_input + total_output
+            self.shared_state["session_metrics"]["cache_read_tokens"] = cache_read
+            self.shared_state["session_metrics"]["cache_creation_tokens"] = cache_creation
 
         except Exception as exc:
             self._logger.log({
@@ -861,7 +1271,22 @@ def _get_skipped_stages(target_repo: str) -> set[str]:
 
         The server is scoped to the workspace root. Returns an empty list on
         failure so the workflow continues without MCP tools.
+
+        Set ``AIDLC_DISABLE_MCP=1`` to skip MCP (agents use ``write_aidlc_artifact``,
+        ``scan_directory``, and ``file_read`` only — same as AgentCore mode).
         """
+        if os.environ.get("AIDLC_DISABLE_MCP", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        ):
+            self._logger.log({
+                "type": "info",
+                "message": "MCP disabled via AIDLC_DISABLE_MCP; using direct file tools only",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            return []
+
         try:
             from strands.tools.mcp import MCPClient
             from mcp import StdioServerParameters
@@ -876,6 +1301,14 @@ def _get_skipped_stages(target_repo: str) -> set[str]:
             # Keep a reference so the connection stays alive for the workflow.
             # Do NOT call start() here — the Strands SDK calls it via load_tools().
             self._mcp_client = mcp_client
+            self._logger.log({
+                "type": "info",
+                "message": (
+                    f"MCP filesystem server started (allowed dir: {_WORKSPACE_ROOT}). "
+                    "If npx prints 'Client does not support MCP Roots', that is expected."
+                ),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
             return [mcp_client]
 
         except Exception as exc:
@@ -911,6 +1344,8 @@ def _get_skipped_stages(target_repo: str) -> set[str]:
             metrics["total_tokens"] = self._token_hook.total_tokens
             metrics["input_tokens"] = self._token_hook.input_tokens
             metrics["output_tokens"] = self._token_hook.output_tokens
+            metrics["cache_read_tokens"] = self._token_hook.cache_read_tokens
+            metrics["cache_creation_tokens"] = self._token_hook.cache_creation_tokens
         metrics["total_duration_ms"] = round(total_duration_ms, 2)
 
         result: dict[str, Any] = {

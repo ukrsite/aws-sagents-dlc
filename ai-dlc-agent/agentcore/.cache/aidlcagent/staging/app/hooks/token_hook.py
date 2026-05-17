@@ -14,16 +14,26 @@ class TokenCountingHook(HookProvider):
     Attributes:
         input_tokens: Cumulative input token count.
         output_tokens: Cumulative output token count.
+        cache_read_tokens: Cumulative cache read tokens (prompt caching).
+        cache_creation_tokens: Cumulative cache creation tokens (prompt caching).
     """
 
     def __init__(self) -> None:
         self.input_tokens: int = 0
         self.output_tokens: int = 0
+        self.cache_read_tokens: int = 0
+        self.cache_creation_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
         """Total tokens consumed (input + output)."""
         return self.input_tokens + self.output_tokens
+
+    @property
+    def cache_savings(self) -> int:
+        """Tokens saved by prompt caching (cache reads cost 90% less than regular input)."""
+        # Cache reads cost 10% of regular input tokens, so we saved 90%
+        return int(self.cache_read_tokens * 0.9)
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register after-model-call callback for token counting."""
@@ -31,13 +41,17 @@ class TokenCountingHook(HookProvider):
 
     def _count_tokens(self, event: AfterModelCallEvent) -> None:
         """Increment session-level input/output token counters from event usage metadata."""
-        # The Strands SDK exposes usage via event.response or event.stop_response
-        usage = None
-        if hasattr(event, "response") and event.response:
-            usage = getattr(event.response, "usage", None)
-        if usage is None and hasattr(event, "stop_response") and event.stop_response:
-            usage = getattr(event.stop_response, "usage", None)
+        if not event.stop_response or not event.stop_response.message:
+            return
 
-        if usage is not None:
-            self.input_tokens += getattr(usage, "inputTokens", 0) or getattr(usage, "input_tokens", 0)
-            self.output_tokens += getattr(usage, "outputTokens", 0) or getattr(usage, "output_tokens", 0)
+        # Usage data is nested: message["metadata"]["usage"]
+        message = event.stop_response.message
+        metadata = message.get("metadata", {})
+        usage = metadata.get("usage", {})
+
+        if usage:
+            self.input_tokens += usage.get("inputTokens", 0)
+            self.output_tokens += usage.get("outputTokens", 0)
+            # Track prompt caching metrics (Bedrock/Anthropic)
+            self.cache_read_tokens += usage.get("cacheReadInputTokens", 0)
+            self.cache_creation_tokens += usage.get("cacheCreationInputTokens", 0)

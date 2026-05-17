@@ -13,8 +13,8 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "strands-agents" },
+    { name = "strands-agents-evals" },
     { name = "strands-agents-tools" },
-    { name = "strands-evals" },
 ]
 
 [package.optional-dependencies]
@@ -35,8 +35,8 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "strands-agents", specifier = ">=1.0.0" },
+    { name = "strands-agents-evals", specifier = ">=0.2.0" },
     { name = "strands-agents-tools", specifier = ">=0.2.0" },
-    { name = "strands-evals", specifier = ">=0.0.1" },
 ]
 provides-extras = ["dev"]
 
@@ -1612,6 +1612,27 @@ wheels = [
 ]
 
 [[package]]
+name = "strands-agents-evals"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "boto3" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation-threading" },
+    { name = "opentelemetry-sdk" },
+    { name = "pydantic" },
+    { name = "rich" },
+    { name = "strands-agents" },
+    { name = "strands-agents-tools" },
+    { name = "tenacity" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cd/45/02a4994c81c865c8a7198a1ab81f1e0008e4dd0e0beb8850fa95c7c0468c/strands_agents_evals-0.2.0.tar.gz", hash = "sha256:8d8aecd1e26b8442bda199ea531eab210247b65969045b5c3bd9d3907344e96a", size = 282735, upload-time = "2026-05-14T13:47:16.871Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b4/7f/69211f88d73b141179dd459595375c4ffb450f15db5686b9d4b81d668096/strands_agents_evals-0.2.0-py3-none-any.whl", hash = "sha256:5c76efe57fd7a593803f4fcf6a8306f39e9240cd5b40b51350f9c6a764316689", size = 227121, upload-time = "2026-05-14T13:47:15.411Z" },
+]
+
+[[package]]
 name = "strands-agents-tools"
 version = "0.5.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1637,19 +1658,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/63/32/710a49ffd32b0a232ec1731620ee6105c045e9a77ecee1f3ecaa1a80a6cd/strands_agents_tools-0.5.2.tar.gz", hash = "sha256:96763c8ae75933c5dd327cca87561f573aed720c9c0f3d17fd20835910d11381", size = 483164, upload-time = "2026-04-30T17:08:13.151Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/59/ef/fe73b6d25d095784d2e1f6f33419265e796143100fb2f32a6e86f8ae68af/strands_agents_tools-0.5.2-py3-none-any.whl", hash = "sha256:8f85e4cb28d9411e62e1f159aa7e300d3a0f4b1d2b878a7cdfd5d746d9333343", size = 316178, upload-time = "2026-04-30T17:08:11.416Z" },
-]
-
-[[package]]
-name = "strands-evals"
-version = "0.0.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-    { name = "urllib3" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/48/82/a0593d39b2fc106d8c48c47c5fdb7f00f299ba9365f8dedff6159bc493a2/strands_evals-0.0.1.tar.gz", hash = "sha256:8d5189c34ec7e4e00b1dc4d42ac2320f7b4b7aa8afcae7d990456f9227ea31a6", size = 3559, upload-time = "2026-03-06T18:50:08.419Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6d/ef/89d41107152070b8c02284e01df2dfbe76eedcc1b33dc4ab81874097aff5/strands_evals-0.0.1-py3-none-any.whl", hash = "sha256:e372b0d0159e9975a935cc7d8337e2302f66f2d3c32a35cba0b6e7ba2d1e9ca2", size = 4057, upload-time = "2026-03-06T18:50:06.937Z" },
 ]
 
 [[package]]
