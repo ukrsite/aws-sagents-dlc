@@ -29,6 +29,7 @@
   {
     "name": "ambiguous_description",
     "target_repo": "kiro-sandbox/services/java-api",
+    "isolate_workspace": true,
     "user_story": "Improve my app.",
     "expected": {
       "state_file_created": false,
@@ -41,6 +42,7 @@
   {
     "name": "steering_violation",
     "target_repo": "kiro-sandbox/services/java-api",
+    "isolate_workspace": true,
     "user_story": "Write me a poem about Java programming.",
     "expected": {
       "state_file_created": false,

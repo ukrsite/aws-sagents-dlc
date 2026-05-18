@@ -8,6 +8,20 @@
 
 **Rerun behavior**: Rerun is controlled by workspace-detection.md. If existing reverse engineering artifacts are found and are still current, they are loaded and reverse engineering is skipped. If artifacts are stale (older than the codebase's last significant modification) or the user explicitly requests a rerun, reverse engineering executes again to ensure artifacts reflect current code state
 
+---
+
+# ⚠️ CRITICAL: MANDATORY ARTIFACT GENERATION
+
+**YOU MUST generate ALL 9 artifacts listed below. This is NOT optional.**
+
+**Why this matters**:
+- `code-structure.md` and `api-documentation.md` are REQUIRED for brownfield cost optimization in code-generation stage
+- Without these files, the existence check cannot run → agent generates full code → wastes $4-10
+
+**Enforcement**: Each artifact MUST be written with `write_aidlc_artifact`. Do NOT collapse multiple artifacts into a single "summary.md" file.
+
+---
+
 ## Step 1: Multi-Package Discovery
 
 ### 1.1 Scan Workspace
@@ -43,9 +57,9 @@
 - Linting configurations
 - CI/CD pipelines
 
-## Step 2: Generate Business Overview Documentation
+## Step 2: Generate Business Overview Documentation (MANDATORY)
 
-Create `aidlc-docs/inception/reverse-engineering/business-overview.md`:
+**REQUIRED**: You MUST call `write_aidlc_artifact` to create `inception/reverse-engineering/business-overview.md` with the following content:
 
 ```markdown
 # Business Overview
@@ -64,9 +78,9 @@ Create `aidlc-docs/inception/reverse-engineering/business-overview.md`:
 - **Responsibilities**: [Key responsibilities]
 ```
 
-## Step 3: Generate Architecture Documentation
+## Step 3: Generate Architecture Documentation (MANDATORY)
 
-Create `aidlc-docs/inception/reverse-engineering/architecture.md`:
+**REQUIRED**: You MUST call `write_aidlc_artifact` to create `inception/reverse-engineering/architecture.md` with the following content:
 
 ```markdown
 # System Architecture
@@ -98,9 +112,11 @@ Create `aidlc-docs/inception/reverse-engineering/architecture.md`:
 - **Networking**: [VPC, subnets, security groups]
 ```
 
-## Step 4: Generate Code Structure Documentation
+## Step 4: Generate Code Structure Documentation (MANDATORY - CRITICAL FOR BROWNFIELD)
 
-Create `aidlc-docs/inception/reverse-engineering/code-structure.md`:
+**🚨 CRITICAL**: This file is REQUIRED for brownfield cost optimization. Without it, code-generation will waste $4-10.
+
+**REQUIRED**: You MUST call `write_aidlc_artifact` to create `inception/reverse-engineering/code-structure.md` with the following content:
 
 ```markdown
 # Code Structure
@@ -131,9 +147,11 @@ Create `aidlc-docs/inception/reverse-engineering/code-structure.md`:
 - **Purpose**: [Why needed]
 ```
 
-## Step 5: Generate API Documentation
+## Step 5: Generate API Documentation (MANDATORY - CRITICAL FOR BROWNFIELD)
 
-Create `aidlc-docs/inception/reverse-engineering/api-documentation.md`:
+**🚨 CRITICAL**: This file is REQUIRED for brownfield cost optimization. Without it, code-generation will waste $4-10.
+
+**REQUIRED**: You MUST call `write_aidlc_artifact` to create `inception/reverse-engineering/api-documentation.md` with the following content:
 
 ```markdown
 # API Documentation
@@ -159,9 +177,9 @@ Create `aidlc-docs/inception/reverse-engineering/api-documentation.md`:
 - **Validation**: [Validation rules]
 ```
 
-## Step 6: Generate Component Inventory
+## Step 6: Generate Component Inventory (MANDATORY)
 
-Create `aidlc-docs/inception/reverse-engineering/component-inventory.md`:
+**REQUIRED**: You MUST call `write_aidlc_artifact` to create `inception/reverse-engineering/component-inventory.md` with the following content:
 
 ```markdown
 # Component Inventory
@@ -186,9 +204,9 @@ Create `aidlc-docs/inception/reverse-engineering/component-inventory.md`:
 - **Test**: [Number]
 ```
 
-## Step 7: Generate Technology Stack Documentation
+## Step 7: Generate Technology Stack Documentation (MANDATORY)
 
-Create `aidlc-docs/inception/reverse-engineering/technology-stack.md`:
+**REQUIRED**: You MUST call `write_aidlc_artifact` to create `inception/reverse-engineering/technology-stack.md` with the following content:
 
 ```markdown
 # Technology Stack
@@ -209,9 +227,9 @@ Create `aidlc-docs/inception/reverse-engineering/technology-stack.md`:
 - [Tool] - [Version] - [Purpose]
 ```
 
-## Step 8: Generate Dependencies Documentation
+## Step 8: Generate Dependencies Documentation (MANDATORY)
 
-Create `aidlc-docs/inception/reverse-engineering/dependencies.md`:
+**REQUIRED**: You MUST call `write_aidlc_artifact` to create `inception/reverse-engineering/dependencies.md` with the following content:
 
 ```markdown
 # Dependencies
@@ -230,9 +248,9 @@ Create `aidlc-docs/inception/reverse-engineering/dependencies.md`:
 - **License**: [License type]
 ```
 
-## Step 9: Generate Code Quality Assessment
+## Step 9: Generate Code Quality Assessment (MANDATORY)
 
-Create `aidlc-docs/inception/reverse-engineering/code-quality-assessment.md`:
+**REQUIRED**: You MUST call `write_aidlc_artifact` to create `inception/reverse-engineering/code-quality-assessment.md` with the following content:
 
 ```markdown
 # Code Quality Assessment
@@ -255,9 +273,9 @@ Create `aidlc-docs/inception/reverse-engineering/code-quality-assessment.md`:
 - **Anti-patterns**: [List with locations]
 ```
 
-## Step 10: Create Timestamp File
+## Step 10: Create Timestamp File (MANDATORY)
 
-Create `aidlc-docs/inception/reverse-engineering/reverse-engineering-timestamp.md`:
+**REQUIRED**: You MUST call `write_aidlc_artifact` to create `inception/reverse-engineering/reverse-engineering-timestamp.md` with the following content:
 
 ```markdown
 # Reverse Engineering Metadata
@@ -268,6 +286,7 @@ Create `aidlc-docs/inception/reverse-engineering/reverse-engineering-timestamp.m
 **Total Files Analyzed**: [Number]
 
 ## Artifacts Generated
+- [x] business-overview.md
 - [x] architecture.md
 - [x] code-structure.md
 - [x] api-documentation.md
@@ -277,7 +296,37 @@ Create `aidlc-docs/inception/reverse-engineering/reverse-engineering-timestamp.m
 - [x] code-quality-assessment.md
 ```
 
-## Step 11: Update State Tracking
+## Step 11: MANDATORY VALIDATION - Verify All 9 Artifacts Written
+
+**🚨 CRITICAL VALIDATION CHECKPOINT**
+
+Before proceeding, you MUST verify that ALL 9 artifacts were written. If ANY are missing, this stage has FAILED and you must regenerate the missing artifacts.
+
+**Required artifacts checklist:**
+1. ✓ `business-overview.md`
+2. ✓ `architecture.md`
+3. ✓ `code-structure.md` ← CRITICAL for brownfield
+4. ✓ `api-documentation.md` ← CRITICAL for brownfield
+5. ✓ `component-inventory.md`
+6. ✓ `technology-stack.md`
+7. ✓ `dependencies.md`
+8. ✓ `code-quality-assessment.md`
+9. ✓ `reverse-engineering-timestamp.md`
+
+**How to verify:**
+- Review your `write_aidlc_artifact` tool calls in this conversation
+- Count: Did you call it exactly 9 times for the files above?
+- If NO: Generate the missing artifacts NOW before proceeding
+
+**INVALID shortcuts that will break brownfield optimization:**
+- ❌ Writing a single `summary.md` instead of 9 files
+- ❌ Combining multiple artifacts into one file
+- ❌ Skipping artifacts because "the project is simple"
+- ❌ Assuming files are optional
+
+**If you wrote `summary.md` instead of the 9 required files, you have FAILED this stage.**
+
+## Step 12: Update State Tracking
 
 Update `aidlc-docs/aidlc-state.md`:
 
@@ -285,9 +334,10 @@ Update `aidlc-docs/aidlc-state.md`:
 ## Reverse Engineering Status
 - [x] Reverse Engineering - Completed on [timestamp]
 - **Artifacts Location**: aidlc-docs/inception/reverse-engineering/
+- **Artifacts Generated**: 9 (business-overview, architecture, code-structure, api-documentation, component-inventory, technology-stack, dependencies, code-quality-assessment, timestamp)
 ```
 
-## Step 12: Present Completion Message to User
+## Step 13: Present Completion Message to User
 
 ```markdown
 # 🔍 Reverse Engineering Complete
@@ -305,7 +355,7 @@ Update `aidlc-docs/aidlc-state.md`:
 > ✅ **Approve & Continue** - Approve analysis and proceed to **Requirements Analysis**
 ```
 
-## Step 13: Wait for User Approval
+## Step 14: Wait for User Approval
 
 - **MANDATORY**: Do not proceed until user explicitly approves
 - **MANDATORY**: Log user's response in audit.md with complete raw input

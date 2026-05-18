@@ -1,0 +1,29 @@
+================================================================================
+AGENTCORE STATUS LOG
+Command: status
+Started: 2026-05-18T16:20:27.550Z
+================================================================================
+
+
+[19:20:27] STEP: Resolve target
+[19:20:27] Project: aidlcagent
+[19:20:27] Available targets: default
+[19:20:27] Selected target: default
+[19:20:27] Status: SUCCESS
+[19:20:27] Duration: 2ms
+
+[19:20:27] STEP: Compute resource statuses
+[19:20:27] Resources: 1 total (1 deployed, 0 local-only, 0 pending-removal)
+[19:20:27]   agent/aidlcagent: deployed [arn:aws:bedrock-agentcore:us-east-1:922060081651:runtime/aidlcagent_aidlcagent-GYGZ5sAxEy]
+[19:20:27] Status: SUCCESS
+[19:20:27] Duration: 4ms
+
+[19:20:27] STEP: Fetch runtime status (1 agent)
+[19:20:28]   aidlcagent: READY (aidlcagent_aidlcagent-GYGZ5sAxEy)
+[19:20:28] Status: SUCCESS
+[19:20:28] Duration: 644ms
+
+================================================================================
+COMPLETED SUCCESSFULLY
+Total Duration: 657ms
+================================================================================

@@ -9,6 +9,33 @@ This stage decomposes the system into manageable units of work through two integ
 
 **Terminology**: Use "Service" for independently deployable components, "Module" for logical groupings within a service, "Unit of Work" for planning context.
 
+---
+
+## ⚠️ CRITICAL: What is NOT a Unit of Work
+
+**Testing is NOT a separate unit**:
+- Tests are written AS PART OF each unit's implementation
+- DO NOT create "Testing & Quality Assurance" as a separate unit
+- DO NOT create "Unit Testing" or "Integration Testing" units
+- Each unit includes its own tests during code-generation stage
+
+**Documentation is NOT a separate unit**:
+- Documentation is generated alongside implementation
+- DO NOT create "Documentation" units
+
+**Deployment/Infrastructure is NOT a separate unit** (unless it's a dedicated DevOps service):
+- Infrastructure code is part of code-generation
+- DO NOT create "Deployment" or "CI/CD" units for feature work
+
+**Examples of INVALID units**:
+- ❌ "Unit 3: Comprehensive Testing & Quality Assurance"
+- ❌ "Unit 4: Documentation & User Guides"
+- ❌ "Unit 5: Deployment & CI/CD Pipeline"
+
+**Why**: Creating testing/documentation/deployment as separate units causes 3x construction overhead (functional-design, code-generation runs 3x). These activities are integral parts of feature implementation.
+
+---
+
 ## Prerequisites
 - Workspace Detection must be complete
 - Requirements Analysis recommended (provides functional scope)

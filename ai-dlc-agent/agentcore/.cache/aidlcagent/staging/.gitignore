@@ -1,4 +1,5 @@
 outputs/
+evals/.workspaces/
 __pycache__/
 *.pyc
 .env

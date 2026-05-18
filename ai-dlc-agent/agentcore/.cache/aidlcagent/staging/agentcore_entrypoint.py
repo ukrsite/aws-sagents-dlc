@@ -173,6 +173,7 @@ def _build_headless_orchestrator(session: _SessionState) -> Any:
         model_id=session.model_id,
         output_dir=session.output_dir,
         rules_base_path=RULES_BASE_PATH,
+        auto_approve=True,  # AgentCore mode: auto-fill questions
     )
     orchestrator._get_mcp_tools = lambda: []  # type: ignore[method-assign]
     return orchestrator
@@ -191,7 +192,7 @@ def _run_workflow_in_background(session: _SessionState) -> None:
 
     original_approval = wf_module._request_approval_python
 
-    def _headless_approval(stage: str, summary: str, target_repo: str = "") -> bool:
+    def _headless_approval(stage: str, summary: str, target_repo: str = "", auto_approve: bool = False) -> bool:
         from app.skills.stage_tracker import get_written
         from app.workflow import _find_questions_file
 

@@ -15,7 +15,79 @@ This stage generates code for each unit of work through two integrated parts:
 
 ---
 
-# PART 1: PLANNING
+# ⚠️ MANDATORY: BROWNFIELD EXISTENCE CHECK (RUN FIRST - NO EXCEPTIONS)
+
+**COST WARNING**: Skipping this check costs $2-10 in wasted tokens. YOU MUST perform this check BEFORE any planning or code generation.
+
+## Step 0: Mandatory Existence Check (< 50K tokens, 2 minutes max)
+
+**REQUIRED FOR ALL BROWNFIELD PROJECTS - NO EXCEPTIONS**
+
+### What to Check
+
+1. **Read ONLY these 2 files**:
+   ```
+   aidlc-docs/inception/reverse-engineering/code-structure.md
+   aidlc-docs/inception/reverse-engineering/api-documentation.md
+   ```
+
+2. **Look for exact matches**:
+   - User story endpoint: Does it exist? (e.g., PUT /api/users/{id})
+   - Service method: Is business logic there? (e.g., UserService.updateUser())
+   - Tests: Are they present? (e.g., UserServiceTest, UserControllerTest)
+
+### Decision Tree
+
+**If ALL THREE exist (endpoint + logic + tests):**
+```markdown
+Feature is COMPLETE. Do NOT generate code.
+
+Write: construction/code-generation-skipped.md
+Content: "Feature fully implemented. Found: [endpoint], [service], [tests]. No code generation needed."
+
+Call: update_workflow_state(stage="code-generation", status="complete")
+EXIT IMMEDIATELY - Do not plan, do not validate, do not pass Go.
+```
+
+**If ANY missing:**
+```markdown
+Feature is INCOMPLETE. Code generation needed.
+
+Proceed to PART 1: PLANNING below.
+Generate ONLY the missing parts.
+```
+
+### Consequences of Skipping This Check
+
+- ❌ Will consume 2M+ tokens validating existing code
+- ❌ Will cost $2-10 instead of $0.10
+- ❌ Will waste 30+ minutes
+- ❌ Will generate duplicate code that overwrites working files
+
+### Example: Profile Update Feature
+
+**User Story**: "As a user, I want to update my profile"
+
+**Reverse Engineering Check**:
+```
+✅ Found: PUT /api/users/{id} in UserController
+✅ Found: UserService.updateUser(id, request) method
+✅ Found: UserServiceTest.testUpdateUser()
+```
+
+**Decision**: SKIP code generation → Write code-generation-skipped.md → EXIT
+
+**DO NOT**:
+- ❌ Create 18-step plan
+- ❌ Validate existing implementation
+- ❌ Generate any code files
+- ❌ Write multiple planning documents
+
+**Token Budget**: 10-50K for this check (reading 2 files). If you use >100K tokens, you did it wrong.
+
+---
+
+# PART 1: PLANNING (Only if code generation needed)
 
 ## Step 1: Analyze Unit Context
 - [ ] Read unit design artifacts from Unit Design Generation
@@ -156,6 +228,17 @@ This stage generates code for each unit of work through two integrated parts:
 
 ---
 ```
+
+**Artifact Generation Rules**
+
+**ONLY generate source files and ONE summary per unit.** DO NOT generate:
+- ❌ Multiple completion markers (CODE_GENERATION_COMPLETE.md, STAGE_COMPLETE.md, CODE_GENERATION_STAGE_COMPLETE.md)
+- ❌ Index files (CODE_GENERATION_INDEX.md, INDEX.md)
+- ❌ Executive summaries (CODE_GENERATION_EXECUTIVE_SUMMARY.md, EXECUTIVE_SUMMARY.md)
+- ❌ Unit completion markers (UNIT_3_COMPLETE.md, UNIT_2_COMPLETE.md)
+- ❌ Execution reports beyond the one summary (CODE_GENERATION_EXECUTION_SUMMARY.md)
+
+Write code files, tests, and ONE summary document. That's it. Extra artifacts waste tokens.
 
 ## Step 15: Wait for Explicit Approval
 - Do not proceed until the user explicitly approves the generated code

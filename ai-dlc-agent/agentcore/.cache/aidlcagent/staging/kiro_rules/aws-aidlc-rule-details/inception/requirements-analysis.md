@@ -119,6 +119,45 @@ After receiving answers:
    - **MANDATORY**: Analyze ALL answers for ambiguities and create follow-up questions if needed
    - **MANDATORY**: Keep asking questions until ALL ambiguities are resolved OR user explicitly asks to proceed
 
+### Step 6.1: Question Format Requirements (Mode-Dependent)
+
+**CRITICAL**: Question generation format depends on execution mode:
+
+#### Interactive Mode (CLI)
+When generating `requirement-verification-questions.md` in CLI mode:
+- Include `[Answer]:` tag for every question
+- Leave the answer field EMPTY (no text after the colon)
+- Format: `[Answer]: ` (blank line after colon)
+- Users will fill in answers interactively
+
+Example:
+```markdown
+**Q1.** What complexity level should this implementation target?
+A) Proof of Concept (minimal features, no optimization)
+B) Standard (core features, reasonable optimization)
+C) Enterprise (full features, high optimization)
+D) Other (describe below)
+
+[Answer]: 
+```
+
+#### Auto-Approve Mode (AgentCore/Serverless)
+When generating `requirement-verification-questions.md` in AgentCore auto-approve mode:
+- Include `[Answer]:` tag with reasonable default pre-filled
+- Choose the most standard option (typically B for complexity, exact match for filters, etc.)
+- Format: `[Answer]: B) Option text`
+
+Example:
+```markdown
+**Q1.** What complexity level should this implementation target?
+A) Proof of Concept (minimal features, no optimization)
+B) Standard (core features, reasonable optimization)
+C) Enterprise (full features, high optimization)
+D) Other (describe below)
+
+[Answer]: B) Standard (core features, reasonable optimization)
+```
+
 ### ⛔ GATE: Await User Answers
 DO NOT proceed to Step 7 until all questions in requirement-verification-questions.md are answered and validated.
 Present the question file to the user and STOP.

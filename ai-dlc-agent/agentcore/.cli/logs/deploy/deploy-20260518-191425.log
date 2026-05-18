@@ -1,0 +1,233 @@
+================================================================================
+AGENTCORE DEPLOY LOG
+Command: deploy
+Started: 2026-05-18T16:14:25.433Z
+================================================================================
+
+
+[19:14:25] STEP: Validate project
+[19:14:26] Status: SUCCESS
+[19:14:26] Duration: 763ms
+
+[19:14:26] STEP: Check dependencies
+[19:14:26] Node.js: 20.16.0
+[19:14:26] uv: 0.11.12
+[19:14:26] Status: SUCCESS
+[19:14:26] Duration: 95ms
+
+[19:14:26] STEP: Build CDK project
+[19:14:41] Status: SUCCESS
+[19:14:41] Duration: 15.3s
+
+[19:14:41] STEP: Synthesize CloudFormation
+[19:15:16] Stacks: AgentCore-aidlcagent-default
+[19:15:16] Status: SUCCESS
+[19:15:16] Duration: 34.7s
+
+[19:15:16] STEP: Check stack status
+[19:15:17] Status: SUCCESS
+[19:15:17] Duration: 746ms
+
+[19:15:18] STEP: Computing diff changes...
+[19:15:18] Starting Synthesis ...
+[19:15:18] --app points to a cloud assembly, so we bypass synth
+[19:15:18] ✨  Synthesis time: 0.02s
+[19:15:18] Starting Diff ...
+[19:15:18] Retrieved account ID 922060081651 from disk cache
+[19:15:18] Assuming role 'arn:aws:iam::922060081651:role/cdk-hnb659fds-lookup-role-922060081651-us-east-1'.
+[19:15:19] [SDK info] STS.AssumeRole({"RoleArn":"arn:aws:iam::922060081651:role/cdk-hnb659fds-lookup-role-922060081651-us-east-1","RoleSessionName":"aws-cdk-sk"}) -> OK
+[19:15:19] [SDK info] SSM.GetParameter({"Name":"/cdk-bootstrap/hnb659fds/version","WithDecryption":true}) -> OK
+[19:15:20] [SDK info] CloudFormation.DescribeStacks({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:15:20] [SDK info] CloudFormation.GetTemplate({"StackName":"AgentCore-aidlcagent-default","TemplateStage":"Original"}) -> OK
+[19:15:20] Retrieved account ID 922060081651 from disk cache
+[19:15:20] Assuming role 'arn:aws:iam::922060081651:role/cdk-hnb659fds-deploy-role-922060081651-us-east-1'.
+[19:15:21] [SDK info] STS.AssumeRole({"RoleArn":"arn:aws:iam::922060081651:role/cdk-hnb659fds-deploy-role-922060081651-us-east-1","RoleSessionName":"aws-cdk-sk"}) -> OK
+[19:15:21] Retrieved account ID 922060081651 from disk cache
+[19:15:21] Assuming role 'arn:aws:iam::922060081651:role/cdk-hnb659fds-deploy-role-922060081651-us-east-1'.
+[19:15:21] [SDK info] STS.AssumeRole({"RoleArn":"arn:aws:iam::922060081651:role/cdk-hnb659fds-deploy-role-922060081651-us-east-1","RoleSessionName":"aws-cdk-sk"}) -> OK
+[19:15:21] start: Building AgentCore-aidlcagent-default Template
+[19:15:21] success: Built AgentCore-aidlcagent-default Template
+[19:15:21] Retrieved account ID 922060081651 from disk cache
+[19:15:22] [SDK info] CloudFormation.DescribeStacks({"StackName":"CDKToolkit"}) -> OK
+[19:15:22] start: Publishing AgentCore-aidlcagent-default Template (922060081651-us-east-1-8ef36dd5)
+[19:15:22] Retrieved account ID 922060081651 from disk cache
+[19:15:22] Assuming role 'arn:aws:iam::922060081651:role/cdk-hnb659fds-file-publishing-role-922060081651-us-east-1'.
+[19:15:22] [SDK info] STS.AssumeRole({"RoleArn":"arn:aws:iam::922060081651:role/cdk-hnb659fds-file-publishing-role-922060081651-us-east-1","RoleSessionName":"aws-cdk-sk"}) -> OK
+[19:15:22] check: Check s3://cdk-hnb659fds-assets-922060081651-us-east-1/ff3b04e90d8864f6a1c2462a359703afc4001d09bb34f33a8f566af66010c280.json
+[19:15:23] [SDK info] S3.GetBucketLocation({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1"}) -> OK
+[19:15:23] [SDK info] S3.ListObjectsV2({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","MaxKeys":1,"Prefix":"ff3b04e90d8864f6a1c2462a359703afc4001d09bb34f33a8f566af66010c280.json"}) -> OK
+[19:15:23] [SDK info] S3.GetBucketEncryption({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1"}) -> OK
+[19:15:23] upload: Upload s3://cdk-hnb659fds-assets-922060081651-us-east-1/ff3b04e90d8864f6a1c2462a359703afc4001d09bb34f33a8f566af66010c280.json
+[19:15:23] [SDK info] S3.PutObject({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"ff3b04e90d8864f6a1c2462a359703afc4001d09bb34f33a8f566af66010c280.json","Body":"<Buffer: 6.49 KiB>","ContentType":"application/json","ChecksumAlgorithm":"SHA256","ServerSideEncryption":"aws:kms","SSEKMSKeyId":"***SensitiveInformation***"}) -> OK
+[19:15:23] success: Published AgentCore-aidlcagent-default Template (922060081651-us-east-1-8ef36dd5)
+[19:15:24] [SDK info] CloudFormation.DescribeStacks({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:15:24] Retrieved account ID 922060081651 from disk cache
+[19:15:24] Hold on while we create a read-only change set to get a diff with accurate replacement information (use --method=template to use a less accurate but faster template-only diff)
+[19:15:24] Removing existing change set with name cdk-diff-change-set if it exists
+[19:15:24] [SDK info] CloudFormation.DeleteChangeSet({"ChangeSetName":"cdk-diff-change-set","StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:15:24] Attempting to create ChangeSet with name cdk-diff-change-set for stack AgentCore-aidlcagent-default
+[19:15:25] [SDK info] CloudFormation.CreateChangeSet({"StackName":"AgentCore-aidlcagent-default","ChangeSetName":"cdk-diff-change-set","TemplateURL":"https://s3.us-east-1.amazonaws.com/cdk-hnb659fds-assets-922060081651-us-east-1/ff3b04e90d8864f6a1c2462a359703afc4001d09bb34f33a8f566af66010c280.json","Parameters":[],"Capabilities":["CAPABILITY_IAM","CAPABILITY_NAMED_IAM","CAPABILITY_AUTO_EXPAND"],"RoleARN":"arn:aws:iam::922060081651:role/cdk-hnb659fds-cfn-exec-role-922060081651-us-east-1","Tags":[{"Key":"agentcore:project-name","Value":"aidlcagent"},{"Key":"agentcore:target-name","Value":"default"}],"ClientToken":"diffbe0b5b96-b6b3-4287-8634-3f329984fe71","Description":"CDK Changeset for diff be0b5b96-b6b3-4287-8634-3f329984fe71","ChangeSetType":"UPDATE"}) -> OK
+[19:15:25] Initiated creation of changeset: arn:aws:cloudformation:us-east-1:922060081651:changeSet/cdk-diff-change-set/8051eb95-450a-4edf-b914-64e7e72761a2; waiting for it to finish creating...
+[19:15:25] Waiting for changeset cdk-diff-change-set on stack AgentCore-aidlcagent-default to finish creating...
+[19:15:25] [SDK info] CloudFormation.DescribeChangeSet({"ChangeSetName":"cdk-diff-change-set","StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:15:25] Changeset cdk-diff-change-set on stack AgentCore-aidlcagent-default is still creating
+[19:15:30] [SDK info] CloudFormation.DescribeChangeSet({"ChangeSetName":"cdk-diff-change-set","StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:15:30] Removing existing change set with name cdk-diff-change-set if it exists
+[19:15:30] [SDK info] CloudFormation.DeleteChangeSet({"ChangeSetName":"cdk-diff-change-set","StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:15:30] Retrieved account ID 922060081651 from disk cache
+
+────────────────────────────────────────────────────────────────────────────────
+Stack AgentCore-aidlcagent-default
+Resources
+[~] AWS::BedrockAgentCore::Runtime Application/AgentAidlcagent/Runtime ApplicationAgentAidlcagentRuntimeD4A44F36
+ └─ [~] AgentRuntimeArtifact
+     └─ [~] .CodeConfiguration:
+         └─ [~] .Code:
+             └─ [~] .S3:
+                 └─ [~] .Prefix:
+                     ├─ [-] 2cb9b4c5a5de0e56b43eb96b9313f9aaacee33973e54f13f01fe2894f809bcd8.zip
+                     └─ [+] d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip
+────────────────────────────────────────────────────────────────────────────────
+
+✨ Number of stacks with differences: 1
+[19:15:33] Status: SUCCESS
+[19:15:33] Duration: 15.2s
+
+[19:15:33] STEP: Publish assets
+[19:15:33] [trace] CDK_TOOLKIT_I1001: Starting Synthesis ...
+[19:15:33] [debug] CDK_ASSEMBLY_I0150: --app points to a cloud assembly, so we bypass synth
+[19:15:33] [info] CDK_TOOLKIT_I1000: ✨  Synthesis time: 0.02s
+[19:15:33] [debug] UNKNOWN: Checking for previously published assets
+[19:15:33] [debug] UNKNOWN: Retrieved account ID 922060081651 from disk cache
+[19:15:33] [debug] UNKNOWN: Assuming role 'arn:aws:iam::922060081651:role/cdk-hnb659fds-file-publishing-role-922060081651-us-east-1'.
+[19:15:33] [debug] UNKNOWN: Retrieved account ID 922060081651 from disk cache
+[19:15:33] [debug] UNKNOWN: Assuming role 'arn:aws:iam::922060081651:role/cdk-hnb659fds-file-publishing-role-922060081651-us-east-1'.
+[19:15:33] [trace] CDK_SDK_I0100: [SDK info] STS.AssumeRole({"RoleArn":"arn:aws:iam::922060081651:role/cdk-hnb659fds-file-publishing-role-922060081651-us-east-1","RoleSessionName":"aws-cdk-sk"}) -> OK
+[19:15:33] [debug] CDK_ASSETS_I5271: [1mAgentCore-aidlcagent-default[22m: check: Check s3://cdk-hnb659fds-assets-922060081651-us-east-1/d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip
+[19:15:33] [trace] CDK_SDK_I0100: [SDK info] STS.AssumeRole({"RoleArn":"arn:aws:iam::922060081651:role/cdk-hnb659fds-file-publishing-role-922060081651-us-east-1","RoleSessionName":"aws-cdk-sk"}) -> OK
+[19:15:33] [debug] CDK_ASSETS_I5271: [1mAgentCore-aidlcagent-default[22m: check: Check s3://cdk-hnb659fds-assets-922060081651-us-east-1/ff3b04e90d8864f6a1c2462a359703afc4001d09bb34f33a8f566af66010c280.json
+[19:15:34] [trace] CDK_SDK_I0100: [SDK info] S3.ListObjectsV2({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","MaxKeys":1,"Prefix":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip"}) -> OK
+[19:15:34] [trace] CDK_SDK_I0100: [SDK info] S3.ListObjectsV2({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","MaxKeys":1,"Prefix":"ff3b04e90d8864f6a1c2462a359703afc4001d09bb34f33a8f566af66010c280.json"}) -> OK
+[19:15:34] [debug] CDK_ASSETS_I5271: [1mAgentCore-aidlcagent-default[22m: found: Found s3://cdk-hnb659fds-assets-922060081651-us-east-1/ff3b04e90d8864f6a1c2462a359703afc4001d09bb34f33a8f566af66010c280.json
+[19:15:34] [debug] UNKNOWN: 2 total assets, 1 still need to be published
+[19:15:34] [trace] CDK_TOOLKIT_I5210: Starting Build Asset ...
+[19:15:34] [debug] UNKNOWN: Retrieved account ID 922060081651 from disk cache
+[19:15:34] [debug] UNKNOWN: Assuming role 'arn:aws:iam::922060081651:role/cdk-hnb659fds-deploy-role-922060081651-us-east-1'.
+[19:15:35] [trace] CDK_SDK_I0100: [SDK info] STS.AssumeRole({"RoleArn":"arn:aws:iam::922060081651:role/cdk-hnb659fds-deploy-role-922060081651-us-east-1","RoleSessionName":"aws-cdk-sk"}) -> OK
+[19:15:35] [trace] CDK_SDK_I0100: [SDK info] SSM.GetParameter({"Name":"/cdk-bootstrap/hnb659fds/version","WithDecryption":true}) -> OK
+[19:15:35] [info] CDK_ASSETS_I5270: [1mAgentCore-aidlcagent-default[22m: start: Building Application/AgentAidlcagent/CodeAsset/ZipAsset
+[19:15:35] [info] CDK_ASSETS_I5275: [1mAgentCore-aidlcagent-default[22m: success: Built Application/AgentAidlcagent/CodeAsset/ZipAsset
+[19:15:35] [trace] CDK_TOOLKIT_I5211: ✨  Build Asset time: 1.1s
+[19:15:35] [trace] CDK_TOOLKIT_I5220: Starting Publish Asset ...
+[19:15:35] [debug] UNKNOWN: Retrieved account ID 922060081651 from disk cache
+[19:15:36] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStacks({"StackName":"CDKToolkit"}) -> OK
+[19:15:36] [info] CDK_ASSETS_I5270: [1mAgentCore-aidlcagent-default[22m: start: Publishing Application/AgentAidlcagent/CodeAsset/ZipAsset (922060081651-us-east-1-f74c1cac)
+[19:15:36] [debug] UNKNOWN: Retrieved account ID 922060081651 from disk cache
+[19:15:36] [debug] CDK_ASSETS_I5271: [1mAgentCore-aidlcagent-default[22m: check: Check s3://cdk-hnb659fds-assets-922060081651-us-east-1/d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip
+[19:15:36] [trace] CDK_SDK_I0100: [SDK info] S3.GetBucketLocation({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1"}) -> OK
+[19:15:36] [trace] CDK_SDK_I0100: [SDK info] S3.ListObjectsV2({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","MaxKeys":1,"Prefix":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip"}) -> OK
+[19:15:36] [trace] CDK_SDK_I0100: [SDK info] S3.GetBucketEncryption({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1"}) -> OK
+[19:15:36] [debug] CDK_ASSETS_I5271: [1mAgentCore-aidlcagent-default[22m: upload: Upload s3://cdk-hnb659fds-assets-922060081651-us-east-1/d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip
+[19:15:37] [trace] CDK_SDK_I0100: [SDK info] S3.CreateMultipartUpload({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip","ContentType":"application/zip","ServerSideEncryption":"aws:kms","SSEKMSKeyId":"***SensitiveInformation***","ChecksumAlgorithm":"SHA256"}) -> OK
+[19:15:41] [trace] CDK_SDK_I0100: [SDK info] S3.UploadPart({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip","PartNumber":2,"UploadId":"mHfHliJE_fNqr4ivnCFPeNhCy2goYm8dJev.KUPnKK7PUElT523Ve0Bkm8iCXqg6qKJ2FbMdKPF_P5hTdS.pCQxuMOfN_fiUjEY3q7Eqi8deMUVMLHy7tFCPnXaWrpAKdu1CZdxX18enxMyKqGgrdA--","Body":"<Buffer: 5 MiB>","ChecksumAlgorithm":"SHA256"}) -> OK
+[19:15:41] [trace] CDK_SDK_I0100: [SDK info] S3.UploadPart({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip","PartNumber":3,"UploadId":"mHfHliJE_fNqr4ivnCFPeNhCy2goYm8dJev.KUPnKK7PUElT523Ve0Bkm8iCXqg6qKJ2FbMdKPF_P5hTdS.pCQxuMOfN_fiUjEY3q7Eqi8deMUVMLHy7tFCPnXaWrpAKdu1CZdxX18enxMyKqGgrdA--","Body":"<Buffer: 5 MiB>","ChecksumAlgorithm":"SHA256"}) -> OK
+[19:15:43] [trace] CDK_SDK_I0100: [SDK info] S3.UploadPart({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip","PartNumber":4,"UploadId":"mHfHliJE_fNqr4ivnCFPeNhCy2goYm8dJev.KUPnKK7PUElT523Ve0Bkm8iCXqg6qKJ2FbMdKPF_P5hTdS.pCQxuMOfN_fiUjEY3q7Eqi8deMUVMLHy7tFCPnXaWrpAKdu1CZdxX18enxMyKqGgrdA--","Body":"<Buffer: 5 MiB>","ChecksumAlgorithm":"SHA256"}) -> OK
+[19:15:44] [trace] CDK_SDK_I0100: [SDK info] S3.UploadPart({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip","PartNumber":5,"UploadId":"mHfHliJE_fNqr4ivnCFPeNhCy2goYm8dJev.KUPnKK7PUElT523Ve0Bkm8iCXqg6qKJ2FbMdKPF_P5hTdS.pCQxuMOfN_fiUjEY3q7Eqi8deMUVMLHy7tFCPnXaWrpAKdu1CZdxX18enxMyKqGgrdA--","Body":"<Buffer: 5 MiB>","ChecksumAlgorithm":"SHA256"}) -> OK
+[19:15:45] [trace] CDK_SDK_I0100: [SDK info] S3.UploadPart({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip","PartNumber":1,"UploadId":"mHfHliJE_fNqr4ivnCFPeNhCy2goYm8dJev.KUPnKK7PUElT523Ve0Bkm8iCXqg6qKJ2FbMdKPF_P5hTdS.pCQxuMOfN_fiUjEY3q7Eqi8deMUVMLHy7tFCPnXaWrpAKdu1CZdxX18enxMyKqGgrdA--","Body":"<Buffer: 5 MiB>","ChecksumAlgorithm":"SHA256"}) -> OK
+[19:15:46] [trace] CDK_SDK_I0100: [SDK info] S3.UploadPart({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip","PartNumber":6,"UploadId":"mHfHliJE_fNqr4ivnCFPeNhCy2goYm8dJev.KUPnKK7PUElT523Ve0Bkm8iCXqg6qKJ2FbMdKPF_P5hTdS.pCQxuMOfN_fiUjEY3q7Eqi8deMUVMLHy7tFCPnXaWrpAKdu1CZdxX18enxMyKqGgrdA--","Body":"<Buffer: 5 MiB>","ChecksumAlgorithm":"SHA256"}) -> OK
+[19:15:47] [trace] CDK_SDK_I0100: [SDK info] S3.UploadPart({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip","PartNumber":8,"UploadId":"mHfHliJE_fNqr4ivnCFPeNhCy2goYm8dJev.KUPnKK7PUElT523Ve0Bkm8iCXqg6qKJ2FbMdKPF_P5hTdS.pCQxuMOfN_fiUjEY3q7Eqi8deMUVMLHy7tFCPnXaWrpAKdu1CZdxX18enxMyKqGgrdA--","Body":"<Buffer: 5 MiB>","ChecksumAlgorithm":"SHA256"}) -> OK
+[19:15:48] [trace] CDK_SDK_I0100: [SDK info] S3.UploadPart({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip","PartNumber":7,"UploadId":"mHfHliJE_fNqr4ivnCFPeNhCy2goYm8dJev.KUPnKK7PUElT523Ve0Bkm8iCXqg6qKJ2FbMdKPF_P5hTdS.pCQxuMOfN_fiUjEY3q7Eqi8deMUVMLHy7tFCPnXaWrpAKdu1CZdxX18enxMyKqGgrdA--","Body":"<Buffer: 5 MiB>","ChecksumAlgorithm":"SHA256"}) -> OK
+[19:15:48] [trace] CDK_SDK_I0100: [SDK info] S3.UploadPart({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip","PartNumber":10,"UploadId":"mHfHliJE_fNqr4ivnCFPeNhCy2goYm8dJev.KUPnKK7PUElT523Ve0Bkm8iCXqg6qKJ2FbMdKPF_P5hTdS.pCQxuMOfN_fiUjEY3q7Eqi8deMUVMLHy7tFCPnXaWrpAKdu1CZdxX18enxMyKqGgrdA--","Body":"<Buffer: 1.31 MiB>","ChecksumAlgorithm":"SHA256"}) -> OK
+[19:15:49] [trace] CDK_SDK_I0100: [SDK info] S3.UploadPart({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip","PartNumber":9,"UploadId":"mHfHliJE_fNqr4ivnCFPeNhCy2goYm8dJev.KUPnKK7PUElT523Ve0Bkm8iCXqg6qKJ2FbMdKPF_P5hTdS.pCQxuMOfN_fiUjEY3q7Eqi8deMUVMLHy7tFCPnXaWrpAKdu1CZdxX18enxMyKqGgrdA--","Body":"<Buffer: 5 MiB>","ChecksumAlgorithm":"SHA256"}) -> OK
+[19:15:49] [trace] CDK_SDK_I0100: [SDK info] S3.CompleteMultipartUpload({"Bucket":"cdk-hnb659fds-assets-922060081651-us-east-1","Key":"d9d63ae2b3a15fb0bfb61d6258dfb5a144f544276c0d877c04bdbf7f45a82da0.zip","UploadId":"mHfHliJE_fNqr4ivnCFPeNhCy2goYm8dJev.KUPnKK7PUElT523Ve0Bkm8iCXqg6qKJ2FbMdKPF_P5hTdS.pCQxuMOfN_fiUjEY3q7Eqi8deMUVMLHy7tFCPnXaWrpAKdu1CZdxX18enxMyKqGgrdA--","MultipartUpload":{"Parts":[{"PartNumber":1,"ETag":"\"82a5590214585335bba287cfd525344e\"","ChecksumSHA256":"2bE9HfnUFjxImW7z8RBdFqxuE5Jxz6umX+rG0S7wNeE="},{"PartNumber":2,"ETag":"\"949bdbc1a508af339f90dd3baf3a870d\"","ChecksumSHA256":"aRbS4iSbAlsygbu/xPW7KbjMcNGc866FbJVAG62YKWE="},{"PartNumber":3,"ETag":"\"658f3db216df580e78718561472b602a\"","ChecksumSHA256":"XoBIGQlTtOFhvnptZ4sIqfyuF9RgKys2qNs3/cQUdaU="},{"PartNumber":4,"ETag":"\"ca7ce85e45b163249c4a1ee7b80fde24\"","ChecksumSHA256":"/tW9sKhZ8rsHc3i/6pi49H5bocczcYSgCMLiroEnhAo="},{"PartNumber":5,"ETag":"\"99804a35a0136dcb442c1a32da2f8b32\"","ChecksumSHA256":"5LYCIbdt/xi4aSTkF6SolHa/IN46v2JAlc7dnVjXzMw="},{"PartNumber":6,"ETag":"\"7e8f2136d5995c687e95eb0324f59dcb\"","ChecksumSHA256":"duwfreJDGhEh3jceKg2QKZcvWXiHNdCbjqs6y+J2iUg="},{"PartNumber":7,"ETag":"\"6b6c9fbe11ac1b79bb35f2848d1a169f\"","ChecksumSHA256":"HULGJSAEl+CbIE5uLlP44QJLgzBq9px62j4h4PxjOqQ="},{"PartNumber":8,"ETag":"\"5e22151d82f0f70363ee7dc45cba2837\"","ChecksumSHA256":"TgpjMSowPrw5uYPYY8SOlC+7lSk9rglCvlwwMzxIR5Y="},{"PartNumber":9,"ETag":"\"5d8f1626d3d7ad7d70a5bac7a45cf7d7\"","ChecksumSHA256":"4GGsgup5Uv1eKDOW68kdfYxhkXcp9O65PWTYE6jnI7Q="},{"PartNumber":10,"ETag":"\"6589d2f9a02af73045a7a2cc3a54ccb4\"","ChecksumSHA256":"nclcdVxM3ObyRI6M/IvDxD415qOlwFRBqFGMcg0UQeM="}]}}) -> OK
+[19:15:49] [info] CDK_ASSETS_I5275: [1mAgentCore-aidlcagent-default[22m: success: Published Application/AgentAidlcagent/CodeAsset/ZipAsset (922060081651-us-east-1-f74c1cac)
+[19:15:49] [trace] CDK_TOOLKIT_I5221: ✨  Publish Asset time: 13.81s
+[19:15:49] [debug] UNKNOWN: Reading existing template for stack AgentCore-aidlcagent-default.
+[19:15:49] [debug] UNKNOWN: Retrieved account ID 922060081651 from disk cache
+[19:15:49] [debug] UNKNOWN: Assuming role 'arn:aws:iam::922060081651:role/cdk-hnb659fds-lookup-role-922060081651-us-east-1'.
+[19:15:49] [trace] CDK_SDK_I0100: [SDK info] STS.AssumeRole({"RoleArn":"arn:aws:iam::922060081651:role/cdk-hnb659fds-lookup-role-922060081651-us-east-1","RoleSessionName":"aws-cdk-sk"}) -> OK
+[19:15:50] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStacks({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:15:50] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.GetTemplate({"StackName":"AgentCore-aidlcagent-default","TemplateStage":"Original"}) -> OK
+[19:15:50] [info] CDK_TOOLKIT_I5100: [1mAgentCore-aidlcagent-default[22m: deploying... [1/1]
+[19:15:50] [debug] UNKNOWN: Retrieved account ID 922060081651 from disk cache
+[19:15:50] [debug] UNKNOWN: Assuming role 'arn:aws:iam::922060081651:role/cdk-hnb659fds-deploy-role-922060081651-us-east-1'.
+[19:15:51] [trace] CDK_SDK_I0100: [SDK info] STS.AssumeRole({"RoleArn":"arn:aws:iam::922060081651:role/cdk-hnb659fds-deploy-role-922060081651-us-east-1","RoleSessionName":"aws-cdk-sk"}) -> OK
+[19:15:51] [debug] UNKNOWN: Retrieved account ID 922060081651 from disk cache
+[19:15:51] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStacks({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:15:51] [debug] UNKNOWN: AgentCore-aidlcagent-default: checking if we can skip deploy
+[19:15:52] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.GetTemplate({"StackName":"AgentCore-aidlcagent-default","TemplateStage":"Original"}) -> OK
+[19:15:52] [debug] UNKNOWN: AgentCore-aidlcagent-default: template has changed
+[19:15:52] [debug] UNKNOWN: AgentCore-aidlcagent-default: deploying...
+[19:15:52] [debug] UNKNOWN: Waiting for stack CDKToolkit to finish creating or updating...
+[19:15:52] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStacks({"StackName":"CDKToolkit"}) -> OK
+[19:15:53] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStacks({"StackName":"CDKToolkit"}) -> OK
+[19:15:53] [debug] UNKNOWN: Removing existing change set with name cdk-deploy-change-set if it exists
+[19:15:53] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DeleteChangeSet({"ChangeSetName":"cdk-deploy-change-set","StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:15:53] [debug] UNKNOWN: Waiting for changeset cdk-deploy-change-set on stack AgentCore-aidlcagent-default to finish deleting...
+[19:15:54] [trace] CDK_SDK_I0100: [SDK error] CloudFormation.DescribeChangeSet({"ChangeSetName":"cdk-deploy-change-set","StackName":"AgentCore-aidlcagent-default"}) -> ChangeSetNotFoundException: ChangeSet [cdk-deploy-change-set] does not exist
+[19:15:54] [debug] UNKNOWN: Attempting to create ChangeSet with name cdk-deploy-change-set to update stack AgentCore-aidlcagent-default
+[19:15:54] [info] UNKNOWN: [1mAgentCore-aidlcagent-default[22m: creating CloudFormation changeset...
+[19:15:54] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.CreateChangeSet({"StackName":"AgentCore-aidlcagent-default","ChangeSetName":"cdk-deploy-change-set","TemplateURL":"https://s3.us-east-1.amazonaws.com/cdk-hnb659fds-assets-922060081651-us-east-1/ff3b04e90d8864f6a1c2462a359703afc4001d09bb34f33a8f566af66010c280.json","Parameters":[],"Capabilities":["CAPABILITY_IAM","CAPABILITY_NAMED_IAM","CAPABILITY_AUTO_EXPAND"],"RoleARN":"arn:aws:iam::922060081651:role/cdk-hnb659fds-cfn-exec-role-922060081651-us-east-1","Tags":[{"Key":"agentcore:project-name","Value":"aidlcagent"},{"Key":"agentcore:target-name","Value":"default"}],"ClientToken":"create4b8e73d6-4481-409c-84df-0b6171c37658","Description":"CDK Changeset for execution 4b8e73d6-4481-409c-84df-0b6171c37658","ChangeSetType":"UPDATE","ImportExistingResources":false}) -> OK
+[19:15:54] [debug] UNKNOWN: Initiated creation of changeset: arn:aws:cloudformation:us-east-1:922060081651:changeSet/cdk-deploy-change-set/93821ed4-de20-4c12-9dc5-e49eb86dd386; waiting for it to finish creating...
+[19:15:54] [debug] UNKNOWN: Waiting for changeset cdk-deploy-change-set on stack AgentCore-aidlcagent-default to finish creating...
+[19:15:54] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeChangeSet({"ChangeSetName":"cdk-deploy-change-set","StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:15:54] [debug] UNKNOWN: Changeset cdk-deploy-change-set on stack AgentCore-aidlcagent-default is still creating
+[19:15:59] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeChangeSet({"ChangeSetName":"cdk-deploy-change-set","StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:15:59] [debug] UNKNOWN: Initiating execution of changeset arn:aws:cloudformation:us-east-1:922060081651:changeSet/cdk-deploy-change-set/93821ed4-de20-4c12-9dc5-e49eb86dd386 on stack AgentCore-aidlcagent-default
+[19:16:00] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.ExecuteChangeSet({"ChangeSetName":"cdk-deploy-change-set","StackName":"AgentCore-aidlcagent-default","ClientRequestToken":"exec4b8e73d6-4481-409c-84df-0b6171c37658"}) -> OK
+[19:16:00] [debug] UNKNOWN: Execution of changeset arn:aws:cloudformation:us-east-1:922060081651:changeSet/cdk-deploy-change-set/93821ed4-de20-4c12-9dc5-e49eb86dd386 on stack AgentCore-aidlcagent-default has started; waiting for the update to complete...
+[19:16:00] [info] CDK_TOOLKIT_I5501: Deploying AgentCore-aidlcagent-default
+[19:16:00] [debug] UNKNOWN: Waiting for stack AgentCore-aidlcagent-default to finish creating or updating...
+[19:16:00] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStacks({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:00] [debug] UNKNOWN: Stack AgentCore-aidlcagent-default has an ongoing operation in progress and is not stable (UPDATE_IN_PROGRESS (User Initiated))
+[19:16:02] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStackEvents({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:02] [info] CDK_TOOLKIT_I5502: AgentCore-aidlcagent-default | 0/3 | 7:16:00 PM | UPDATE_IN_PROGRESS | AWS::CloudFormation::Stack | AgentCore-aidlcagent-default User Initiated
+[19:16:02] Status: SUCCESS
+[19:16:02] Duration: 29.5s
+
+[19:16:02] STEP: Deploy to AWS
+[19:16:05] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStackEvents({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:05] [info] CDK_TOOLKIT_I5502: AgentCore-aidlcagent-default | 0/3 | 7:16:03 PM | UPDATE_IN_PROGRESS | AWS::BedrockAgentCore::Runtime | Application/AgentAidlcagent/Runtime (ApplicationAgentAidlcagentRuntimeD4A44F36)
+[19:16:05] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStacks({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:05] [debug] UNKNOWN: Stack AgentCore-aidlcagent-default has an ongoing operation in progress and is not stable (UPDATE_IN_PROGRESS)
+[19:16:07] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStackEvents({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:10] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStackEvents({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:10] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStacks({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:10] [debug] UNKNOWN: Stack AgentCore-aidlcagent-default has an ongoing operation in progress and is not stable (UPDATE_IN_PROGRESS)
+[19:16:12] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStackEvents({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:15] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStackEvents({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:15] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStacks({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:15] [debug] UNKNOWN: Stack AgentCore-aidlcagent-default has an ongoing operation in progress and is not stable (UPDATE_IN_PROGRESS)
+[19:16:17] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStackEvents({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:20] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStackEvents({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:21] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStacks({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:21] [debug] UNKNOWN: Stack AgentCore-aidlcagent-default has an ongoing operation in progress and is not stable (UPDATE_IN_PROGRESS)
+[19:16:22] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStackEvents({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:25] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStackEvents({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:25] [info] CDK_TOOLKIT_I5502: AgentCore-aidlcagent-default | 1/3 | 7:16:23 PM | UPDATE_COMPLETE | AWS::BedrockAgentCore::Runtime | Application/AgentAidlcagent/Runtime (ApplicationAgentAidlcagentRuntimeD4A44F36)
+[19:16:26] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStacks({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:26] [trace] CDK_SDK_I0100: [SDK info] CloudFormation.DescribeStackEvents({"StackName":"AgentCore-aidlcagent-default"}) -> OK
+[19:16:26] [info] CDK_TOOLKIT_I5502: AgentCore-aidlcagent-default | 2/3 | 7:16:25 PM | UPDATE_COMPLETE_CLEANUP_IN_PROGRESS | AWS::CloudFormation::Stack | AgentCore-aidlcagent-default
+[19:16:26] [info] CDK_TOOLKIT_I5502: AgentCore-aidlcagent-default | 3/3 | 7:16:25 PM | UPDATE_COMPLETE | AWS::CloudFormation::Stack | AgentCore-aidlcagent-default
+[19:16:26] [info] CDK_TOOLKIT_I5503: Completed AgentCore-aidlcagent-default
+[19:16:26] [debug] UNKNOWN: Stack AgentCore-aidlcagent-default has completed updating
+[19:16:26] [result] CDK_TOOLKIT_I5900: [32m[39m
+[32m ✅  AgentCore-aidlcagent-default[39m
+[19:16:26] [info] CDK_TOOLKIT_I5000: ✨  Deployment time: 36.14s
+[19:16:26] [info] CDK_TOOLKIT_I5901: Outputs:
+[36mAgentCore-aidlcagent-default[39m.[36mApplicationAgentAidlcagentRoleArnOutput2A944F66[39m = [4m[36marn:aws:iam::922060081651:role/AgentCore-aidlcagent-defa-ApplicationAgentAidlcagen-H2ajP1qVk50L[39m[24m
+[36mAgentCore-aidlcagent-default[39m.[36mApplicationAgentAidlcagentRuntimeArnOutput6F423C18[39m = [4m[36marn:aws:bedrock-agentcore:us-east-1:922060081651:runtime/aidlcagent_aidlcagent-GYGZ5sAxEy[39m[24m
+[36mAgentCore-aidlcagent-default[39m.[36mApplicationAgentAidlcagentRuntimeIdOutputB7E432DE[39m = [4m[36maidlcagent_aidlcagent-GYGZ5sAxEy[39m[24m
+[36mAgentCore-aidlcagent-default[39m.[36mStackNameOutput[39m = [4m[36mAgentCore-aidlcagent-default[39m[24m
+[19:16:26] [info] CDK_TOOLKIT_I5901: Stack ARN:
+arn:aws:cloudformation:us-east-1:922060081651:stack/AgentCore-aidlcagent-default/1320e960-4f09-11f1-9315-0afff821a635
+[19:16:26] [info] CDK_TOOLKIT_I5001: ✨  Total time: 36.16s
+[19:16:26] Polling stack outputs (attempt 1/10)...
+[19:16:27] Retrieved 4 output(s) from stack
+[19:16:29] Status: SUCCESS
+[19:16:29] Duration: 26.6s
+
+================================================================================
+COMPLETED SUCCESSFULLY
+Total Duration: 2m 4s
+================================================================================

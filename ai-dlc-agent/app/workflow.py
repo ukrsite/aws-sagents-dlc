@@ -1027,6 +1027,7 @@ class WorkflowOrchestrator:
                         hooks=hooks,
                         rules_base_path=self.rules_base_path,
                         max_output_tokens=self.max_output_tokens,
+                        auto_approve=self.auto_approve,
                     )
 
                     # For code-generation, add explicit instruction to write source files.
@@ -1151,6 +1152,7 @@ class WorkflowOrchestrator:
                     hooks=hooks,
                     rules_base_path=self.rules_base_path,
                     max_output_tokens=self.max_output_tokens,
+                    auto_approve=self.auto_approve,
                 )
 
                 stage_result = _run_stage_with_retry(

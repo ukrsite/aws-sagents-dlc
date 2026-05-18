@@ -65,6 +65,8 @@ Design detailed business logic for the unit, technology-agnostic and focused pur
 - **Do not proceed until ALL ambiguities are resolved**
 
 ### Step 6: Generate Functional Design Artifacts
+
+**Required artifacts** (generate these):
 - Create `aidlc-docs/construction/{unit-name}/functional-design/business-logic-model.md`
 - Create `aidlc-docs/construction/{unit-name}/functional-design/business-rules.md`
 - Create `aidlc-docs/construction/{unit-name}/functional-design/domain-entities.md`
@@ -72,6 +74,16 @@ Design detailed business logic for the unit, technology-agnostic and focused pur
   - Component hierarchy and structure
   - Props and state definitions for each component
   - User interaction flows
+
+**Artifact Generation Rules**
+
+**ONLY generate the artifacts listed above.** DO NOT generate:
+- ❌ Completion summaries (FUNCTIONAL_DESIGN_COMPLETE.md, EXECUTION_SUMMARY.md, FUNCTIONAL_DESIGN_EXECUTION_SUMMARY.md)
+- ❌ Index files (FUNCTIONAL_DESIGN_INDEX.md, INDEX.md)
+- ❌ README files (README.md)
+- ❌ Stage-level summaries (STAGE_COMPLETION_SUMMARY.md)
+
+The required artifacts are sufficient. Extra documentation wastes tokens.
   - Form validation rules
   - API integration points (which backend endpoints each component uses)
 

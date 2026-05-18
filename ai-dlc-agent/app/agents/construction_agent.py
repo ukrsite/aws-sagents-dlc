@@ -24,10 +24,15 @@ class WriteInterruptHook(HookProvider):
     Attributes:
         MCP_WRITE_TOOL: Name of the MCP filesystem write tool to intercept.
         TIMEOUT_SECONDS: Seconds to wait for user input before treating as rejected.
+        auto_approve: If True, automatically approve all writes without prompting.
     """
 
     MCP_WRITE_TOOL = "write_file"
     TIMEOUT_SECONDS = 60
+
+    def __init__(self, auto_approve: bool = False):
+        """Initialize the hook with auto-approve flag."""
+        self.auto_approve = auto_approve
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register the before-tool-call callback."""
@@ -40,6 +45,8 @@ class WriteInterruptHook(HookProvider):
         Determines whether the write target is an ARTIFACT (inside aidlc-docs/)
         or SOURCE CODE (outside aidlc-docs/). Displays the file type, path, and
         content preview, then waits up to 60 seconds for "approve" or "reject".
+
+        In auto-approve mode, automatically approves all writes without prompting.
         """
         tool_name = event.tool_use.get("name", "")
         if tool_name != self.MCP_WRITE_TOOL:
@@ -50,6 +57,11 @@ class WriteInterruptHook(HookProvider):
 
         # Determine file type based on path.
         file_type = "ARTIFACT" if "aidlc-docs" in path else "SOURCE CODE"
+
+        # Auto-approve mode: silently approve all writes
+        if self.auto_approve:
+            print(f"  💻 source:   {Path(path).name}" if file_type == "SOURCE CODE" else f"  📄 artifact: {Path(path).relative_to(Path(path).parent.parent)}")
+            return
 
         print("\n" + "=" * 70)
         print(f"⚠️  INTERRUPT: Construction Agent wants to write a {file_type} file")
@@ -103,6 +115,7 @@ def build_construction_agent(
     hooks: list,
     rules_base_path: str = ".kiro/aws-aidlc-rule-details",
     max_output_tokens: int = 8192,
+    auto_approve: bool = False,
 ) -> Agent:
     """
     Build and return the Construction_Agent.
@@ -121,7 +134,7 @@ def build_construction_agent(
     and updates workflow state via ``update_workflow_state`` after each stage.
 
     A ``WriteInterruptHook`` is always appended to the hooks list to intercept
-    every MCP ``write_file`` call and request human approval.
+    every MCP ``write_file`` call and request human approval (unless auto_approve=True).
 
     Args:
         model_id: Amazon Bedrock model identifier.
@@ -129,6 +142,7 @@ def build_construction_agent(
         shared_state: Mutable shared state dict (includes ``target_repo``).
         hooks: List of HookProvider instances (WriteInterruptHook appended here).
         rules_base_path: Base path to AI-DLC rule detail files.
+        auto_approve: If True, WriteInterruptHook auto-approves all writes.
 
     Returns:
         Configured Strands Agent instance.
@@ -142,7 +156,7 @@ def build_construction_agent(
     from strands_tools import file_read
     from strands.agent.conversation_manager import SlidingWindowConversationManager
 
-    write_interrupt_hook = WriteInterruptHook()
+    write_interrupt_hook = WriteInterruptHook(auto_approve=auto_approve)
     all_hooks = list(hooks) + [write_interrupt_hook]
 
     system_prompt = _build_construction_system_prompt(rules_base_path, shared_state)

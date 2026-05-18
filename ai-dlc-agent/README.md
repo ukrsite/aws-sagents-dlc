@@ -251,7 +251,7 @@ Optional: `export AIDLC_MAX_OUTPUT_TOKENS=8192` (default; increase only if your 
 
 ```bash
 # From monorepo root
-uv run --directory ai-dlc-agent python -m app.main \
+uv run python -m app.main \
   --repo kiro-sandbox/services/python-processor \
   --story "As an API consumer, I want a filter_by_department action on POST /api/process/users that returns only users in the department named in the request, so that dashboards can load a single team without client-side filtering." \
   --model-id us.anthropic.claude-haiku-4-5-20251001-v1:0
@@ -261,7 +261,7 @@ uv run --directory ai-dlc-agent python -m app.main \
 
 ```bash
 # No user interaction required - runs to completion automatically
-uv run --directory ai-dlc-agent python -m app.main \
+uv run python -m app.main \
   --repo kiro-sandbox/services/python-processor \
   --story "As an API consumer, I want a filter_by_department action" \
   --model-id us.anthropic.claude-haiku-4-5-20251001-v1:0 \
@@ -621,6 +621,8 @@ agentcore deploy
 
 # Check deployment status
 agentcore status
+agentcore logs 
+
 ```
 
 ---

@@ -1,0 +1,32 @@
+================================================================================
+AGENTCORE INVOKE LOG
+Agent: aidlcagent
+Runtime ARN: arn:aws:bedrock-agentcore:us-east-1:922060081651:runtime/aidlcagent_aidlcagent-GYGZ5sAxEy
+Region: us-east-1
+Session ID: none
+Started: 2026-05-18T16:30:18.402Z
+================================================================================
+
+[19:30:18.406] INVOKE REQUEST (Session: none)
+
+--- REQUEST ---
+{
+  "timestamp": "2026-05-18T16:30:18.405Z",
+  "agent": "aidlcagent",
+  "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:922060081651:runtime/aidlcagent_aidlcagent-GYGZ5sAxEy",
+  "region": "us-east-1",
+  "prompt": "{\"action\":\"start\",\"repo\":\"kiro-sandbox/services/java-api\",\"story\":\"As a user, I want to update my profile\"}"
+}
+--- END REQUEST ---
+
+[19:30:23.697] INVOKE RESPONSE (5292ms)
+
+--- RESPONSE ---
+{
+  "timestamp": "2026-05-18T16:30:23.697Z",
+  "durationMs": 5292,
+  "success": true,
+  "response": "{\n  \"status\": \"running\",\n  \"session_id\": \"e50e5774-f46d-4f11-8823-3eb718eda299\",\n  \"stage\": \"starting\",\n  \"completed_stages\": [],\n  \"timestamp\": \"2026-05-18T16:30:23.590163+00:00\"\n}"
+}
+--- END RESPONSE ---
+
