@@ -66,12 +66,16 @@ Differences from the CLI mode
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+import boto3
+from dotenv import load_dotenv
 
 from bedrock_agentcore import BedrockAgentCoreApp
 from bedrock_agentcore.runtime.context import RequestContext
@@ -80,14 +84,43 @@ from bedrock_agentcore.runtime.context import RequestContext
 # App bootstrap
 # ---------------------------------------------------------------------------
 
+# Load .env file for local development (agentcore dev)
+# Use explicit path to ensure it's loaded regardless of cwd
+_env_path = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=_env_path)
+
 app = BedrockAgentCoreApp()
 
 # ---------------------------------------------------------------------------
-# Session store — keyed by session_id, lives in /tmp for the container lifetime
+# Session store — persisted to S3 for cross-container persistence
 # ---------------------------------------------------------------------------
 
 _SESSION_DIR = Path("/tmp/aidlc-sessions")
 _SESSION_DIR.mkdir(parents=True, exist_ok=True)
+
+# S3 bucket for persistent session storage (set via environment variable)
+_SESSION_BUCKET = os.environ.get("SESSION_BUCKET", "aidlc-agentcore-sessions")
+
+# For local development, disable S3 by default unless explicitly enabled
+# In deployed AgentCore (Lambda), set USE_S3_PERSISTENCE=true
+_USE_S3_PERSISTENCE_ENV = os.environ.get("USE_S3_PERSISTENCE", "false").lower()
+_USE_S3_PERSISTENCE = _USE_S3_PERSISTENCE_ENV == "true"
+
+print(f"[AgentCore] USE_S3_PERSISTENCE={_USE_S3_PERSISTENCE} (from env: {_USE_S3_PERSISTENCE_ENV})")
+
+# Initialize S3 client (only if persistence enabled)
+_s3_client = None
+if _USE_S3_PERSISTENCE:
+    print("[AgentCore] Initializing S3 client...")
+    try:
+        _s3_client = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+        print("[AgentCore] S3 client initialized successfully")
+    except Exception as e:
+        print(f"[AgentCore] Failed to initialize S3 client: {e}")
+        _s3_client = None
+        _USE_S3_PERSISTENCE = False
+else:
+    print("[AgentCore] S3 persistence disabled (local dev mode)")
 
 _ACTIVE_SESSIONS: dict[str, "_SessionState"] = {}
 _SESSIONS_LOCK = threading.Lock()
@@ -160,6 +193,94 @@ class _SessionState:
         self._approval_value = approved
         self._approval_event.set()
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize session state to dictionary (for S3 persistence)."""
+        return {
+            "session_id": self.session_id,
+            "repo": self.repo,
+            "story": self.story,
+            "model_id": self.model_id,
+            "auto_approve": self.auto_approve,
+            "pending_stage": self.pending_stage,
+            "completed_stages": self.completed_stages,
+            "pending_answers": self.pending_answers,
+            "pending_feedback": self.pending_feedback,
+            "final_result": self.final_result,
+            "error": self.error,
+            "output_dir": self.output_dir,
+        }
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "_SessionState":
+        """Deserialize session state from dictionary (from S3)."""
+        session = _SessionState(
+            session_id=data["session_id"],
+            repo=data["repo"],
+            story=data["story"],
+            model_id=data["model_id"],
+            auto_approve=data.get("auto_approve", True),
+        )
+        session.pending_stage = data.get("pending_stage")
+        session.completed_stages = data.get("completed_stages", [])
+        session.pending_answers = data.get("pending_answers")
+        session.pending_feedback = data.get("pending_feedback")
+        session.final_result = data.get("final_result")
+        session.error = data.get("error")
+        return session
+
+
+# ---------------------------------------------------------------------------
+# S3 Session Persistence
+# ---------------------------------------------------------------------------
+
+def _save_session_to_s3(session: _SessionState) -> None:
+    """Persist session state to S3 for cross-container durability."""
+    if not _USE_S3_PERSISTENCE or not _s3_client:
+        return
+
+    try:
+        key = f"sessions/{session.session_id}.json"
+        data = session.to_dict()
+        _s3_client.put_object(
+            Bucket=_SESSION_BUCKET,
+            Key=key,
+            Body=json.dumps(data),
+            ContentType="application/json",
+        )
+    except Exception as e:
+        # Log but don't fail - fall back to in-memory only
+        print(f"Warning: Failed to save session to S3: {e}")
+
+
+def _load_session_from_s3(session_id: str) -> _SessionState | None:
+    """Load session state from S3."""
+    if not _USE_S3_PERSISTENCE or not _s3_client:
+        return None
+
+    try:
+        key = f"sessions/{session_id}.json"
+        response = _s3_client.get_object(Bucket=_SESSION_BUCKET, Key=key)
+        data = json.loads(response["Body"].read())
+        return _SessionState.from_dict(data)
+    except _s3_client.exceptions.NoSuchKey:
+        return None
+    except Exception as e:
+        print(f"Warning: Failed to load session from S3: {e}")
+        return None
+
+
+def _delete_session_from_s3(session_id: str) -> None:
+    """Delete session state from S3 (cleanup after completion)."""
+    if not _USE_S3_PERSISTENCE or not _s3_client:
+        return
+
+    try:
+        key = f"sessions/{session_id}.json"
+        _s3_client.delete_object(Bucket=_SESSION_BUCKET, Key=key)
+    except Exception as e:
+        # Log but don't fail
+        print(f"Warning: Failed to delete session from S3: {e}")
+
 
 # ---------------------------------------------------------------------------
 # Headless orchestrator
@@ -188,9 +309,20 @@ def _run_workflow_in_background(session: _SessionState) -> None:
     - pauses only when clarifying questions need answers (any mode)
     - pauses at every gate when auto_approve is False (manual mode)
     """
+    # Debug logging to file
+    debug_log = Path("/tmp/agentcore_debug.log")
+
+    def log(msg: str) -> None:
+        with open(debug_log, "a") as f:
+            f.write(f"{datetime.now(timezone.utc).isoformat()} - {msg}\n")
+            f.flush()
+
+    log(f"ENTER _run_workflow_in_background for session {session.session_id}")
+
     import app.workflow as wf_module
 
     original_approval = wf_module._request_approval_python
+    log("Imported app.workflow")
 
     def _headless_approval(stage: str, summary: str, target_repo: str = "", auto_approve: bool = False) -> bool:
         from app.skills.stage_tracker import get_written
@@ -206,6 +338,9 @@ def _run_workflow_in_background(session: _SessionState) -> None:
         session.pending_stage = stage
         session.pending_artifacts = list(written)
         session.pending_questions_path = questions_path
+
+        # Persist updated state to S3 after each stage
+        _save_session_to_s3(session)
 
         # Write answers back into the questions file if provided.
         if questions_path and session.pending_answers:
@@ -251,21 +386,32 @@ def _run_workflow_in_background(session: _SessionState) -> None:
             session.pending_feedback = None
         return approved
 
+    log("Replaced _request_approval_python with headless version")
     wf_module._request_approval_python = _headless_approval  # type: ignore[attr-defined]
 
     try:
+        log("Building orchestrator...")
         orchestrator = _build_headless_orchestrator(session)
+        log(f"Starting workflow run() for repo={session.repo}")
         result = orchestrator.run(
             target_repo=session.repo,
             user_story=session.story,
         )
+        log("Workflow run() completed")
         session.final_result = result
     except Exception as exc:
+        log(f"Workflow error: {exc}")
         session.error = str(exc)
     finally:
+        log("Cleaning up...")
         wf_module._request_approval_python = original_approval  # type: ignore[attr-defined]
         session.pending_stage = "__done__"
+
+        # Save final state to S3 before signaling completion
+        _save_session_to_s3(session)
+
         session.signal_paused()
+        log("EXIT _run_workflow_in_background")
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +466,9 @@ def invoke(payload: dict[str, Any], context: RequestContext) -> dict[str, Any]:
         with _SESSIONS_LOCK:
             _ACTIVE_SESSIONS[session_id] = session
 
+        # Persist to S3 for cross-container durability
+        _save_session_to_s3(session)
+
         thread = threading.Thread(
             target=_run_workflow_in_background,
             args=(session,),
@@ -350,6 +499,14 @@ def invoke(payload: dict[str, Any], context: RequestContext) -> dict[str, Any]:
     # ------------------------------------------------------------------
     with _SESSIONS_LOCK:
         session = _ACTIVE_SESSIONS.get(session_id)
+
+    # If not in memory, try loading from S3 (cross-container persistence)
+    if session is None:
+        session = _load_session_from_s3(session_id)
+        if session is not None:
+            # Restore to in-memory cache
+            with _SESSIONS_LOCK:
+                _ACTIVE_SESSIONS[session_id] = session
 
     if session is None:
         return {
@@ -385,6 +542,9 @@ def _build_response(session: _SessionState) -> dict[str, Any]:
     if session.pending_stage == "__done__":
         with _SESSIONS_LOCK:
             _ACTIVE_SESSIONS.pop(session.session_id, None)
+
+        # Clean up S3 session after completion
+        _delete_session_from_s3(session.session_id)
 
         if session.error:
             return {
