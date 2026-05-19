@@ -33,12 +33,12 @@ echo "   Repo: $REPO"
 echo "   Story: $STORY"
 echo ""
 
-RESPONSE=$(agentcore invoke "{
+RESPONSE=$(echo "{
   \"action\": \"start\",
   \"repo\": \"$REPO\",
   \"story\": \"$STORY\",
   \"auto_approve\": true
-}")
+}" | agentcore invoke)
 
 SESSION=$(echo "$RESPONSE" | jq -r '.session_id')
 STATUS=$(echo "$RESPONSE" | jq -r '.status')
@@ -104,7 +104,7 @@ while [ $COUNTER -lt $MAX_WAIT ]; do
   ELAPSED=$(($(date +%s) - START_TIME))
 
   # Check status
-  STATUS_RESPONSE=$(agentcore invoke "{\"action\": \"approve\", \"session_id\": \"$SESSION\"}" 2>&1)
+  STATUS_RESPONSE=$(echo "{\"action\": \"approve\", \"session_id\": \"$SESSION\"}" | agentcore invoke 2>&1)
 
   if echo "$STATUS_RESPONSE" | grep -q "Session.*not found"; then
     echo -e "${RED}❌ Session lost! S3 persistence failed${NC}"
