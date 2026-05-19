@@ -19,7 +19,10 @@
       "envVars": [
         { "name": "AWS_REGION", "value": "us-east-1" },
         { "name": "MODEL_ID", "value": "us.anthropic.claude-haiku-4-5-20251001-v1:0" },
-        { "name": "AIDLC_VERBOSE", "value": "0" }
+        { "name": "AIDLC_VERBOSE", "value": "0" },
+        { "name": "USE_S3_PERSISTENCE", "value": "true" },
+        { "name": "SESSION_BUCKET", "value": "aidlc-agentcore-sessions" },
+        { "name": "AIDLC_WORKSPACE_ROOT", "value": "/var/task" }
       ]
     }
   ],

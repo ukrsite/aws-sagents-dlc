@@ -554,7 +554,12 @@ def _request_approval_python(stage: str, summary: str, target_repo: str = "", au
 # Resolve rules path: env var override takes priority, then look for kiro_rules/
 # bundled alongside the app package (container), then fall back to workspace root.
 _AGENT_DIR = Path(__file__).parent.parent.resolve()  # .../ai-dlc-agent/
-_WORKSPACE_ROOT = _AGENT_DIR.parent.resolve()         # .../aws-sagents-dlc/
+
+# Allow override via env var for Lambda deployments (defaults to parent of agent dir)
+if "AIDLC_WORKSPACE_ROOT" in os.environ and os.environ["AIDLC_WORKSPACE_ROOT"]:
+    _WORKSPACE_ROOT = Path(os.environ["AIDLC_WORKSPACE_ROOT"]).resolve()
+else:
+    _WORKSPACE_ROOT = _AGENT_DIR.parent.resolve()     # .../aws-sagents-dlc/
 if "AIDLC_RULES_PATH" in os.environ and os.environ["AIDLC_RULES_PATH"]:
     RULES_BASE_PATH = str(Path(os.environ["AIDLC_RULES_PATH"]))
 elif (_AGENT_DIR / "kiro_rules/aws-aidlc-rule-details").exists():

@@ -392,9 +392,33 @@ def _run_workflow_in_background(session: _SessionState) -> None:
     try:
         log("Building orchestrator...")
         orchestrator = _build_headless_orchestrator(session)
-        log(f"Starting workflow run() for repo={session.repo}")
+
+        # In Lambda, /var/task is read-only. Copy repo to /tmp for writing.
+        import shutil
+        from pathlib import Path
+
+        workspace_root = os.environ.get("AIDLC_WORKSPACE_ROOT", "")
+        if workspace_root == "/var/task":
+            # Lambda environment: copy repo from /var/task to /tmp
+            source_repo = Path(f"/var/task/{session.repo}")
+            temp_repo = Path(f"/tmp/aidlc-workdir/{session.session_id}/{session.repo}")
+            temp_repo.parent.mkdir(parents=True, exist_ok=True)
+
+            log(f"Copying repo from {source_repo} to {temp_repo} (Lambda read-only workaround)")
+            if source_repo.exists():
+                shutil.copytree(source_repo, temp_repo, dirs_exist_ok=True)
+                target_repo_path = str(temp_repo)
+                log(f"Using working copy: {target_repo_path}")
+            else:
+                log(f"WARNING: Source repo not found at {source_repo}, using as-is")
+                target_repo_path = session.repo
+        else:
+            # Local/dev environment: use repo path as-is
+            target_repo_path = session.repo
+
+        log(f"Starting workflow run() for repo={target_repo_path}")
         result = orchestrator.run(
-            target_repo=session.repo,
+            target_repo=target_repo_path,
             user_story=session.story,
         )
         log("Workflow run() completed")

@@ -621,6 +621,8 @@ agentcore deploy
 
 # Check deployment status
 agentcore status
+agentcore logs 
+
 ```
 
 ---

@@ -1,5 +1,7 @@
 outputs/
 evals/.workspaces/
+agentcore/.cli/
+agentcore/.cache/
 __pycache__/
 *.pyc
 .env
