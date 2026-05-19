@@ -40,7 +40,8 @@ See: [AgentCore Commands Reference](agentcore/agentcore_commands_reference.md)
 
 | Script | Purpose |
 |--------|---------|
-| [test_agentcore_e2e.sh](testing/test_agentcore_e2e.sh) | **End-to-end workflow verification** (recommended) |
+| [verify_s3_persistence.sh](testing/verify_s3_persistence.sh) | **Verify S3 configuration** (quick, non-interactive) ⭐ |
+| [test_agentcore_e2e.sh](testing/test_agentcore_e2e.sh) | End-to-end workflow verification (interactive) |
 | [test_local_agentcore.sh](testing/test_local_agentcore.sh) | Test local AgentCore dev server |
 
 ### 📊 Project Documentation
@@ -54,7 +55,24 @@ See: [AgentCore Commands Reference](agentcore/agentcore_commands_reference.md)
 
 ## Common Tasks
 
-### Test Deployed AgentCore End-to-End
+### Verify S3 Persistence Configuration (Recommended)
+
+```bash
+./docs/testing/verify_s3_persistence.sh
+```
+
+**What it verifies**:
+- ✅ S3 bucket accessible
+- ✅ S3 persistence enabled in runtime
+- ✅ IAM permissions configured
+- ✅ Environment variables correct
+- ✅ Session data format valid (if sessions exist)
+
+**Duration**: 10 seconds (non-interactive)
+
+---
+
+### Test Full Workflow End-to-End
 
 ```bash
 ./docs/testing/test_agentcore_e2e.sh
@@ -69,7 +87,7 @@ See: [AgentCore Commands Reference](agentcore/agentcore_commands_reference.md)
 - ✅ Token usage within budget
 - ✅ S3 cleanup working
 
-**Duration**: 5-15 minutes
+**Duration**: 5-15 minutes (requires agentcore invoke interaction)
 
 ---
 
