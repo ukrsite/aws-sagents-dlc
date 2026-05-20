@@ -18,12 +18,6 @@ Start a new workflow (auto-approve mode — runs end-to-end, pauses only for que
         "auto_approve": true   # default: true — skip per-stage approval gates
     }
 
-Continue a workflow (run next stage):
-    {
-        "action":     "continue",
-        "session_id": "<session_id from previous response>"
-    }
-
 Answer clarifying questions (only needed when status == "awaiting_answers"):
     {
         "action":     "answer",
@@ -58,19 +52,6 @@ Every response contains:
         "error":        "..."     # only when status == "error"
     }
 
-Lambda Execution Model (Stage-by-Stage)
-----------------------------------------
-To avoid Lambda's 15-minute execution timeout, the workflow is executed
-stage-by-stage across multiple Lambda invocations:
-
-1. Client calls action="start" → Lambda runs first stage, saves state to S3
-2. Lambda returns {"status": "running", "next_action": "continue"}
-3. Client calls action="continue" → Lambda runs next stage, saves state
-4. Repeat until all 13 stages complete or error occurs
-
-Artifacts are saved to /tmp during each stage, then synced to S3.
-Next invocation restores /tmp from S3 before running next stage.
-
 Differences from the CLI mode
 ------------------------------
 - No stdin / stdout interaction — all I/O is JSON over HTTP
@@ -79,8 +60,8 @@ Differences from the CLI mode
 - No MCP filesystem server (npx not available in AgentCore containers) —
   agents use write_aidlc_artifact / write_source_file / scan_directory directly
 - WriteInterruptHook is disabled — file writes are auto-approved
-- Session state and artifacts persisted to S3 between stage invocations
-- Each Lambda invocation runs ONE stage (not all 13 stages)
+- Session state is persisted to /tmp/<session_id>/ between invocations
+  (AgentCore sessions have a 15-minute inactivity timeout)
 """
 
 from __future__ import annotations
@@ -178,7 +159,7 @@ class _SessionState:
         self.final_result: dict[str, Any] | None = None
         self.error: str | None = None
 
-        # Threading primitives (not used in Lambda stage-by-stage mode)
+        # Threading primitives
         self._thread: threading.Thread | None = None
         self._stage_done = threading.Event()
         self._approval_event = threading.Event()
@@ -187,9 +168,6 @@ class _SessionState:
         # Per-session output dir
         self.output_dir = str(_SESSION_DIR / session_id)
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
-
-        # Working repo path (set after /tmp copy in Lambda)
-        self.working_repo_path: str | None = None
 
     # -- called by the HTTP handler to wait for the workflow to pause --
 
@@ -230,7 +208,6 @@ class _SessionState:
             "final_result": self.final_result,
             "error": self.error,
             "output_dir": self.output_dir,
-            "working_repo_path": self.working_repo_path,
         }
 
     @staticmethod
@@ -249,7 +226,6 @@ class _SessionState:
         session.pending_feedback = data.get("pending_feedback")
         session.final_result = data.get("final_result")
         session.error = data.get("error")
-        session.working_repo_path = data.get("working_repo_path")
         return session
 
 
@@ -307,67 +283,6 @@ def _delete_session_from_s3(session_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# S3 Artifact Sync (for stage-by-stage execution)
-# ---------------------------------------------------------------------------
-
-def _sync_artifacts_to_s3(session_id: str, working_repo_path: str) -> None:
-    """
-    Upload aidlc-docs/ artifacts from /tmp working copy to S3.
-    Called after each stage completes to persist artifacts.
-    """
-    if not _USE_S3_PERSISTENCE or not _s3_client:
-        return
-
-    try:
-        import tarfile
-        import io
-
-        aidlc_docs = Path(working_repo_path) / "aidlc-docs"
-        if not aidlc_docs.exists():
-            return
-
-        # Create tar.gz of aidlc-docs/
-        buffer = io.BytesIO()
-        with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
-            tar.add(aidlc_docs, arcname="aidlc-docs")
-        buffer.seek(0)
-
-        # Upload to S3
-        key = f"artifacts/{session_id}/aidlc-docs.tar.gz"
-        _s3_client.put_object(Bucket=_SESSION_BUCKET, Key=key, Body=buffer.getvalue())
-        print(f"[AgentCore] Synced artifacts to S3: {key}", flush=True)
-    except Exception as e:
-        print(f"Warning: Failed to sync artifacts to S3: {e}", flush=True)
-
-
-def _restore_artifacts_from_s3(session_id: str, working_repo_path: str) -> None:
-    """
-    Download aidlc-docs/ artifacts from S3 to /tmp working copy.
-    Called before running next stage to restore previous artifacts.
-    """
-    if not _USE_S3_PERSISTENCE or not _s3_client:
-        return
-
-    try:
-        import tarfile
-        import io
-
-        key = f"artifacts/{session_id}/aidlc-docs.tar.gz"
-        response = _s3_client.get_object(Bucket=_SESSION_BUCKET, Key=key)
-        buffer = io.BytesIO(response["Body"].read())
-
-        # Extract to working repo
-        with tarfile.open(fileobj=buffer, mode="r:gz") as tar:
-            tar.extractall(path=working_repo_path)
-        print(f"[AgentCore] Restored artifacts from S3: {key}", flush=True)
-    except _s3_client.exceptions.NoSuchKey:
-        # No artifacts yet (first stage)
-        print(f"[AgentCore] No artifacts to restore (first stage)", flush=True)
-    except Exception as e:
-        print(f"Warning: Failed to restore artifacts from S3: {e}", flush=True)
-
-
-# ---------------------------------------------------------------------------
 # Headless orchestrator
 # ---------------------------------------------------------------------------
 
@@ -385,201 +300,14 @@ def _build_headless_orchestrator(session: _SessionState) -> Any:
     return orchestrator
 
 
-def _run_next_stage_sync(session: _SessionState) -> dict[str, Any]:
-    """
-    Run the NEXT incomplete workflow stage synchronously (Lambda-compatible).
-
-    This is a HACK to work around Lambda's 15-minute timeout:
-    - Checks completed stages from aidlc-state.md
-    - Finds the next stage to run
-    - Monkey-patches orchestrator to skip all stages except next one
-    - Runs orchestrator.run() which will execute only the next stage
-    - Returns status for HTTP response
-
-    Returns:
-        {"status": "running|complete|error", "stage": "...", "completed_stages": [...]}
-    """
-    import shutil
-    import json
-    import re
-    from app.workflow import WorkflowOrchestrator, RULES_BASE_PATH
-
-    print(f"[AgentCore] _run_next_stage_sync for session {session.session_id}", flush=True)
-
-    # Copy repo from /var/task to /tmp (Lambda read-only workaround)
-    workspace_root = os.environ.get("AIDLC_WORKSPACE_ROOT", "")
-    if workspace_root == "/var/task":
-        source_repo = Path(f"/var/task/{session.repo}")
-        repo_name = source_repo.name
-        temp_repo = Path(f"/tmp/aidlc-workdir/{session.session_id}/{repo_name}")
-        temp_repo.parent.mkdir(parents=True, exist_ok=True)
-
-        # Check if working copy exists from previous stage
-        if not temp_repo.exists() or not list(temp_repo.iterdir()):
-            # First invocation: copy from /var/task
-            print(f"[AgentCore] Initial copy: {source_repo} → {temp_repo}", flush=True)
-            if source_repo.exists():
-                shutil.copytree(source_repo, temp_repo, dirs_exist_ok=True)
-            else:
-                print(f"[AgentCore] ERROR: Source repo not found at {source_repo}", flush=True)
-                return {
-                    "status": "error",
-                    "error": f"Source repo not found: {source_repo}",
-                    "completed_stages": [],
-                }
-        else:
-            print(f"[AgentCore] Reusing working copy: {temp_repo}", flush=True)
-
-        target_repo_path = str(temp_repo.resolve())
-        session.working_repo_path = target_repo_path
-    else:
-        # Local/dev environment
-        target_repo_path = session.repo
-        session.working_repo_path = target_repo_path
-
-    # Restore artifacts from previous stages (if any)
-    _restore_artifacts_from_s3(session.session_id, target_repo_path)
-
-    # Define all stages (in execution order)
-    ALL_STAGES = [
-        # Inception
-        "workspace-detection",
-        "reverse-engineering",
-        "requirements-analysis",
-        "user-stories",
-        "workflow-planning",
-        "application-design",
-        "units-generation",
-        # Construction
-        "functional-design",
-        "nfr-requirements",
-        "nfr-design",
-        "infrastructure-design",
-        "code-generation",
-        "build-and-test",
-    ]
-
-    # Get completed stages from aidlc-state.md
-    def _read_completed_stages(repo_path: str) -> list[str]:
-        state_path = Path(repo_path) / "aidlc-docs" / "aidlc-state.md"
-        if not state_path.exists():
-            return []
-        try:
-            text = state_path.read_text(encoding="utf-8")
-            match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
-            if match:
-                state = json.loads(match.group(1))
-                return state.get("completed_stages", [])
-        except (OSError, json.JSONDecodeError) as e:
-            print(f"[AgentCore] Warning: Failed to read aidlc-state.md: {e}", flush=True)
-        return []
-
-    completed = _read_completed_stages(target_repo_path)
-    print(f"[AgentCore] Completed stages: {completed}", flush=True)
-
-    # Find next stage to run
-    next_stage = None
-    for stage in ALL_STAGES:
-        if stage not in completed:
-            next_stage = stage
-            break
-
-    if next_stage is None:
-        # All stages complete!
-        print("[AgentCore] All stages complete!", flush=True)
-        session.pending_stage = "__done__"
-        _save_session_to_s3(session)
-        return {
-            "status": "complete",
-            "stage": completed[-1] if completed else None,
-            "completed_stages": completed,
-        }
-
-    print(f"[AgentCore] Running next stage: {next_stage}", flush=True)
-
-    # Build orchestrator
-    orchestrator = WorkflowOrchestrator(
-        model_id=session.model_id,
-        output_dir=session.output_dir,
-        rules_base_path=RULES_BASE_PATH,
-        auto_approve=True,
-    )
-    orchestrator._get_mcp_tools = lambda: []
-
-    # HACK: Monkey-patch _get_completed_stages to return all stages EXCEPT next_stage
-    # This forces the orchestrator to skip all stages except the one we want to run
-    fake_completed = [s for s in ALL_STAGES if s != next_stage and s in completed]
-    original_get_completed = orchestrator._get_completed_stages
-    orchestrator._get_completed_stages = lambda repo: fake_completed
-
-    print(f"[AgentCore] Fake completed list (to force skip): {fake_completed}", flush=True)
-
-    try:
-        # Run orchestrator - it will skip all stages in fake_completed and run only next_stage
-        result = orchestrator.run(
-            target_repo=target_repo_path,
-            user_story=session.story,
-        )
-
-        # Restore original method
-        orchestrator._get_completed_stages = original_get_completed
-
-        # Get updated completed stages
-        completed_after = _read_completed_stages(target_repo_path)
-        print(f"[AgentCore] Completed after run: {completed_after}", flush=True)
-
-        # Sync artifacts to S3 for next invocation
-        _sync_artifacts_to_s3(session.session_id, target_repo_path)
-
-        # Update session state
-        session.completed_stages = completed_after
-        session.pending_stage = next_stage
-        _save_session_to_s3(session)
-
-        # Check if more stages remain
-        remaining = [s for s in ALL_STAGES if s not in completed_after]
-        if remaining:
-            return {
-                "status": "running",
-                "stage": next_stage,
-                "completed_stages": completed_after,
-                "remaining_stages": remaining,
-            }
-        else:
-            session.pending_stage = "__done__"
-            session.final_result = result
-            _save_session_to_s3(session)
-            return {
-                "status": "complete",
-                "stage": next_stage,
-                "completed_stages": completed_after,
-            }
-
-    except Exception as exc:
-        print(f"[AgentCore] ERROR in stage {next_stage}: {exc}", flush=True)
-        import traceback
-        traceback.print_exc()
-
-        session.error = str(exc)
-        session.pending_stage = next_stage
-        _save_session_to_s3(session)
-
-        return {
-            "status": "error",
-            "error": str(exc),
-            "stage": next_stage,
-            "completed_stages": completed,
-        }
-
-
 def _run_workflow_in_background(session: _SessionState) -> None:
     """
-    DEPRECATED: This function runs all stages in a background thread.
-    It fails in Lambda due to 15-minute timeout.
+    Run the full workflow in a background thread.
 
-    Use _run_next_stage_sync() instead for Lambda deployments.
-
-    This function is kept for local dev mode compatibility.
+    Replaces _request_approval_python with a headless version that:
+    - auto-approves all stage gates when session.auto_approve is True
+    - pauses only when clarifying questions need answers (any mode)
+    - pauses at every gate when auto_approve is False (manual mode)
     """
     # Debug logging to file
     debug_log = Path("/tmp/agentcore_debug.log")
@@ -669,26 +397,18 @@ def _run_workflow_in_background(session: _SessionState) -> None:
         import shutil
 
         workspace_root = os.environ.get("AIDLC_WORKSPACE_ROOT", "")
-        print(f"[AgentCore] AIDLC_WORKSPACE_ROOT={workspace_root}", flush=True)
         if workspace_root == "/var/task":
             # Lambda environment: copy repo from /var/task to /tmp
-            # Source: /var/task/kiro-sandbox/services/java-api
-            # Dest: /tmp/aidlc-workdir/{session_id}/java-api
             source_repo = Path(f"/var/task/{session.repo}")
-            repo_name = source_repo.name  # e.g., "java-api"
-            temp_repo = Path(f"/tmp/aidlc-workdir/{session.session_id}/{repo_name}")
+            temp_repo = Path(f"/tmp/aidlc-workdir/{session.session_id}/{session.repo}")
             temp_repo.parent.mkdir(parents=True, exist_ok=True)
 
-            print(f"[AgentCore] Copying repo from {source_repo} to {temp_repo}", flush=True)
             log(f"Copying repo from {source_repo} to {temp_repo} (Lambda read-only workaround)")
             if source_repo.exists():
                 shutil.copytree(source_repo, temp_repo, dirs_exist_ok=True)
-                # Pass absolute path - workflow.py will use it directly since Path(base) / Path(absolute) = absolute
-                target_repo_path = str(temp_repo.resolve())
-                print(f"[AgentCore] Using working copy: {target_repo_path}", flush=True)
+                target_repo_path = str(temp_repo)
                 log(f"Using working copy: {target_repo_path}")
             else:
-                print(f"[AgentCore] WARNING: Source repo not found at {source_repo}", flush=True)
                 log(f"WARNING: Source repo not found at {source_repo}, using as-is")
                 target_repo_path = session.repo
         else:
@@ -726,7 +446,7 @@ def invoke(payload: dict[str, Any], context: RequestContext) -> dict[str, Any]:
     """
     Main AgentCore invocation handler.
 
-    Actions: start | continue | answer | approve | feedback
+    Actions: start | answer | approve | feedback
     """
     import json as _json
     # agentcore invoke CLI wraps the payload as {"prompt": "<json string>"}
@@ -742,7 +462,7 @@ def invoke(payload: dict[str, Any], context: RequestContext) -> dict[str, Any]:
     session_id = payload.get("session_id") or context.session_id or str(uuid.uuid4())
 
     # ------------------------------------------------------------------
-    # START - Create session and run first stage
+    # START
     # ------------------------------------------------------------------
     if action == "start":
         repo = payload.get("repo", "")
@@ -766,112 +486,78 @@ def invoke(payload: dict[str, Any], context: RequestContext) -> dict[str, Any]:
             model_id=model_id,
             auto_approve=auto_approve,
         )
-
         with _SESSIONS_LOCK:
             _ACTIVE_SESSIONS[session_id] = session
 
-        # Persist to S3
+        # Persist to S3 for cross-container durability
         _save_session_to_s3(session)
 
-        print(f"[AgentCore] Starting workflow for session {session_id}", flush=True)
+        thread = threading.Thread(
+            target=_run_workflow_in_background,
+            args=(session,),
+            daemon=True,
+            name=f"aidlc-{session_id[:8]}",
+        )
+        session._thread = thread
+        thread.start()
 
-        # Run first stage synchronously (Lambda-compatible)
-        result = _run_next_stage_sync(session)
-        result["session_id"] = session_id
-
-        # Add next_action hint for client
-        if result["status"] == "running":
-            result["next_action"] = "continue"
-
-        return result
-
-    # ------------------------------------------------------------------
-    # CONTINUE - Run next stage
-    # ------------------------------------------------------------------
-    elif action == "continue":
-        # Load session from S3
-        with _SESSIONS_LOCK:
-            session = _ACTIVE_SESSIONS.get(session_id)
-
-        if session is None:
-            session = _load_session_from_s3(session_id)
-            if session is not None:
-                with _SESSIONS_LOCK:
-                    _ACTIVE_SESSIONS[session_id] = session
-
-        if session is None:
+        # In auto_approve mode the workflow runs to completion in the background.
+        # Return immediately so the HTTP client isn't left waiting for 7+ minutes.
+        # The caller can poll with action='approve' to check progress/completion.
+        if session.auto_approve:
             return {
-                "status": "error",
-                "error": f"Session '{session_id}' not found. Use action='start' to begin.",
+                "status": "running",
                 "session_id": session_id,
+                "stage": "starting",
+                "completed_stages": [],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
-        print(f"[AgentCore] Continuing workflow for session {session_id}", flush=True)
-
-        # Run next stage
-        result = _run_next_stage_sync(session)
-        result["session_id"] = session_id
-
-        # Add next_action hint
-        if result["status"] == "running":
-            result["next_action"] = "continue"
-
-        return result
+        # Manual mode — wait for the first stage gate before returning.
+        session.wait_for_pause(timeout=600.0)
+        return _build_response(session)
 
     # ------------------------------------------------------------------
-    # ANSWER / APPROVE / FEEDBACK — for manual approval mode
-    # (Not used in auto_approve=true Lambda mode)
+    # ANSWER / APPROVE / FEEDBACK — resume a paused session
     # ------------------------------------------------------------------
+    with _SESSIONS_LOCK:
+        session = _ACTIVE_SESSIONS.get(session_id)
+
+    # If not in memory, try loading from S3 (cross-container persistence)
+    if session is None:
+        session = _load_session_from_s3(session_id)
+        if session is not None:
+            # Restore to in-memory cache
+            with _SESSIONS_LOCK:
+                _ACTIVE_SESSIONS[session_id] = session
+
+    if session is None:
+        return {
+            "status": "error",
+            "error": f"Session '{session_id}' not found. Use action='start' to begin.",
+            "session_id": session_id,
+        }
+
+    if action == "answer":
+        session.pending_answers = payload.get("answers", "")
+        session.resume(approved=True)
+
+    elif action == "approve":
+        session.resume(approved=True)
+
+    elif action == "feedback":
+        session.pending_feedback = payload.get("text", "")
+        session.resume(approved=False)
+
     else:
-        with _SESSIONS_LOCK:
-            session = _ACTIVE_SESSIONS.get(session_id)
+        return {
+            "status": "error",
+            "error": f"Unknown action '{action}'. Valid: start, answer, approve, feedback.",
+            "session_id": session_id,
+        }
 
-        # If not in memory, try loading from S3
-        if session is None:
-            session = _load_session_from_s3(session_id)
-            if session is not None:
-                with _SESSIONS_LOCK:
-                    _ACTIVE_SESSIONS[session_id] = session
-
-        if session is None:
-            return {
-                "status": "error",
-                "error": f"Session '{session_id}' not found. Use action='start' to begin.",
-                "session_id": session_id,
-            }
-
-        if action == "answer":
-            # User provided answers to clarifying questions
-            session.pending_answers = payload.get("answers", "")
-            # TODO: Inject answers and re-run stage
-            return {
-                "status": "error",
-                "error": "Answer action not yet implemented in stage-by-stage mode",
-                "session_id": session_id,
-            }
-
-        elif action == "approve":
-            # Manual approval - just continue to next stage
-            result = _run_next_stage_sync(session)
-            result["session_id"] = session_id
-            if result["status"] == "running":
-                result["next_action"] = "continue"
-            return result
-
-        elif action == "feedback":
-            session.pending_feedback = payload.get("text", "")
-            return {
-                "status": "error",
-                "error": "Feedback action not yet implemented in stage-by-stage mode",
-                "session_id": session_id,
-            }
-
-        else:
-            return {
-                "status": "error",
-                "error": f"Unknown action '{action}'. Valid: start, continue, answer, approve, feedback.",
-                "session_id": session_id,
-            }
+    session.wait_for_pause(timeout=600.0)
+    return _build_response(session)
 
 
 def _build_response(session: _SessionState) -> dict[str, Any]:
