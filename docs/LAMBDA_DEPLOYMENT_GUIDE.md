@@ -3,7 +3,7 @@
 > Complete guide for deploying AI-DLC agent to AWS Lambda via Bedrock AgentCore
 
 **Last Updated**: 2026-05-20  
-**Status**: ✅ Tested and Working
+**Status**: ✅ Working - Tested Successfully
 
 ---
 
@@ -11,13 +11,15 @@
 
 **Original Error**:
 ```
-Session 7e7703b3-c44a-40d0-98d0-2230e896bd3d failed:
-Workflow failed: [Errno 13] Permission denied: '/var/kiro-sandbox'
+Workflow failed: [Errno 13] Permission denied: '/var/task/kiro-sandbox'
 ```
 
-**Root Cause**: Lambda tried to access `kiro-sandbox/` directory structure, but it wasn't included in the deployment package and Lambda's `/var` is read-only.
+**Root Cause**: Lambda's `/var/task` is **read-only**, but the workflow needs to **write** `aidlc-docs/` artifacts to the target repository.
 
-**Solution**: Bundle `kiro-sandbox/` and `.kiro/` into the Lambda package and configure the workspace root via environment variable.
+**Solution**: 
+1. Copy `kiro-sandbox/` and `.kiro/` into Lambda deployment package
+2. At runtime, copy repo from `/var/task` (read-only) to `/tmp` (writable)
+3. Run workflow on the `/tmp` copy
 
 ---
 
@@ -26,40 +28,63 @@ Workflow failed: [Errno 13] Permission denied: '/var/kiro-sandbox'
 ```bash
 cd /home/sk/vscode/aws-sagents-dlc/ai-dlc-agent
 
-# 1. Copy workspace directories to staging
+# 1. Copy workspace directories to source tree (REQUIRED before each deploy)
 ./deploy.sh
 
 # 2. Deploy to AWS Lambda
 agentcore deploy
 ```
 
-**That's it!** The fix is now deployed.
+**Important**: Run `./deploy.sh` **before every `agentcore deploy`** because the deployment process rebuilds from source.
 
 ---
 
 ## What Changed
 
-### 1. Code Changes
+### 1. Runtime Copy Logic
+
+**File**: `agentcore_entrypoint.py` (lines 396-420)
+
+Added logic to copy repo from `/var/task` (read-only) to `/tmp` (writable) before running workflow:
+
+```python
+workspace_root = os.environ.get("AIDLC_WORKSPACE_ROOT", "")
+if workspace_root == "/var/task":
+    # Lambda environment: copy repo from /var/task to /tmp
+    source_repo = Path(f"/var/task/{session.repo}")
+    repo_name = source_repo.name  # e.g., "java-api"
+    temp_repo = Path(f"/tmp/aidlc-workdir/{session.session_id}/{repo_name}")
+    temp_repo.parent.mkdir(parents=True, exist_ok=True)
+
+    if source_repo.exists():
+        shutil.copytree(source_repo, temp_repo, dirs_exist_ok=True)
+        target_repo_path = str(temp_repo.resolve())  # Absolute path
+    else:
+        target_repo_path = session.repo
+else:
+    # Local/dev environment: use repo path as-is
+    target_repo_path = session.repo
+
+result = orchestrator.run(target_repo=target_repo_path, ...)
+```
+
+**Why**: Lambda's `/var/task` is read-only. We need a writable location for `aidlc-docs/` artifacts.
+
+### 2. Workspace Root Configuration
 
 **File**: `app/workflow.py` (lines 555-563)
 
-Added environment variable support for workspace root:
+Added environment variable support:
 
 ```python
 # Allow override via env var for Lambda deployments
 if "AIDLC_WORKSPACE_ROOT" in os.environ and os.environ["AIDLC_WORKSPACE_ROOT"]:
     _WORKSPACE_ROOT = Path(os.environ["AIDLC_WORKSPACE_ROOT"]).resolve()
 else:
-    _WORKSPACE_ROOT = _AGENT_DIR.parent.resolve()  # Default: parent directory
+    _WORKSPACE_ROOT = _AGENT_DIR.parent.resolve()
 ```
 
-**Why**: Lambda code lives in `/var/task/`, not in a typical directory structure with parent directories.
-
-### 2. Configuration Changes
-
 **File**: `agentcore/agentcore.json`
-
-Added environment variable:
 
 ```json
 {
@@ -69,71 +94,90 @@ Added environment variable:
 }
 ```
 
-**Why**: Tells the workflow that in Lambda, the workspace root is `/var/task/` (where code is deployed).
+**Why**: Tells the workflow where to find bundled repositories in Lambda.
 
-### 3. Deployment Script
+### 3. Deployment Script (CRITICAL)
 
 **File**: `deploy.sh`
 
-Copies `kiro-sandbox/` and `.kiro/` into the AgentCore staging directory before deployment.
+Copies `kiro-sandbox/` and `.kiro/` **into the source tree** (not staging):
 
 ```bash
 #!/bin/bash
-# Copies workspace directories into Lambda package
+# Copy workspace directories into ai-dlc-agent/ directory
+# These will be packaged automatically by agentcore deploy
 
-STAGING_DIR="agentcore/.cache/aidlcagent/staging"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-cp -r ../kiro-sandbox "$STAGING_DIR/"     # 5.1M
-cp -r ../.kiro "$STAGING_DIR/"            # 356K
+# Copy to SOURCE TREE (ai-dlc-agent/), not staging
+# agentcore deploy rebuilds staging from source
+cp -r "$WORKSPACE_ROOT/kiro-sandbox" "$SCRIPT_DIR/"
+cp -r "$WORKSPACE_ROOT/.kiro" "$SCRIPT_DIR/"
 ```
 
-**Why**: Lambda package must include the target repository structure and steering rules.
+**Why**: `agentcore deploy` rebuilds the staging directory from source (`codeLocation: "."`), so we must copy to the source tree, not staging.
 
 ---
 
 ## How It Works
 
-### Local Development (before fix)
+### Local Development
 ```
 _WORKSPACE_ROOT = /home/sk/vscode/aws-sagents-dlc/
 target_repo = "kiro-sandbox/services/java-api"
 abs_target_repo = /home/sk/vscode/aws-sagents-dlc/kiro-sandbox/services/java-api ✅
 ```
 
-### Lambda (before fix)
+### Lambda (Before Fix) ❌
 ```
-_WORKSPACE_ROOT = /var/task/../  (parent of Lambda code dir)
+_WORKSPACE_ROOT = /var/task/
 target_repo = "kiro-sandbox/services/java-api"
-abs_target_repo = /var/kiro-sandbox/services/java-api ❌ Permission denied
+abs_target_repo = /var/task/kiro-sandbox/services/java-api
+
+Problem: /var/task is READ-ONLY
+When workflow tries: Path("/var/task/kiro-sandbox/services/java-api/aidlc-docs").mkdir()
+Result: [Errno 13] Permission denied ❌
 ```
 
-### Lambda (after fix)
+### Lambda (After Fix) ✅
 ```
-_WORKSPACE_ROOT = /var/task/  (from env var)
-target_repo = "kiro-sandbox/services/java-api"
-abs_target_repo = /var/task/kiro-sandbox/services/java-api ✅ Works!
+Step 1: Copy at runtime
+  Source: /var/task/kiro-sandbox/services/java-api (read-only, bundled)
+  Dest:   /tmp/aidlc-workdir/{session_id}/java-api (writable)
+
+Step 2: Pass absolute path to workflow
+  target_repo = "/tmp/aidlc-workdir/{session_id}/java-api"
+  
+Step 3: Workflow runs on /tmp copy
+  Path("/tmp/aidlc-workdir/.../java-api/aidlc-docs").mkdir() ✅ Success!
 ```
 
 ### Lambda Package Structure
 
 ```
-/var/task/
-├── agentcore_entrypoint.py         ← AgentCore HTTP handler
-├── app/                             ← Application code
+/var/task/ (read-only)
+├── agentcore_entrypoint.py         ← Copies repo to /tmp at runtime
+├── app/
 │   ├── agents/
 │   ├── skills/
-│   └── workflow.py
-├── boto3/                           ← Dependencies (bundled)
-├── botocore/
-├── strands/
-├── kiro-sandbox/                    ← Target repos (copied by deploy.sh)
+│   └── workflow.py                 ← Uses AIDLC_WORKSPACE_ROOT=/var/task
+├── kiro-sandbox/                    ← Bundled by deploy.sh
 │   └── services/
 │       ├── java-api/
 │       ├── python-processor/
 │       └── node-gateway/
-└── .kiro/                           ← Steering rules (copied by deploy.sh)
+└── .kiro/                           ← Bundled by deploy.sh
     ├── aws-aidlc-rule-details/
     └── steering/
+
+/tmp/ (writable)
+└── aidlc-workdir/
+    └── {session_id}/
+        └── java-api/                ← Working copy (created at runtime)
+            ├── src/
+            ├── aidlc-docs/          ← Written here ✅
+            └── ...
 ```
 
 ---
@@ -148,18 +192,19 @@ abs_target_repo = /var/task/kiro-sandbox/services/java-api ✅ Works!
    # Edit app/ files...
    ```
 
-2. **Copy workspace directories**
+2. **Copy workspace directories to source tree** (REQUIRED)
    ```bash
    ./deploy.sh
    ```
    
    Output:
    ```
-   ✅ Staging directory found
    ✅ kiro-sandbox (5.1M)
    ✅ .kiro (356K)
-   ✅ Workspace directories copied
+   ✅ Workspace directories copied to source tree
    ```
+   
+   This copies to `ai-dlc-agent/kiro-sandbox/` and `ai-dlc-agent/.kiro/`
 
 3. **Deploy to AWS**
    ```bash
@@ -167,21 +212,58 @@ abs_target_repo = /var/task/kiro-sandbox/services/java-api ✅ Works!
    ```
    
    This will:
-   - Package the staging directory (including kiro-sandbox and .kiro)
+   - Rebuild staging from source (includes kiro-sandbox and .kiro)
+   - Package all files
    - Upload to S3
    - Update Lambda function
    - Apply environment variables from `agentcore.json`
 
+### Critical Notes
+
+⚠️ **Always run `./deploy.sh` before `agentcore deploy`**
+
+Why: `agentcore deploy` rebuilds the staging directory from the source tree (`codeLocation: "."`). If you don't copy the workspace directories first, they won't be included in the package.
+
+**Workflow must be**:
+```bash
+./deploy.sh           # Copy to source
+agentcore deploy      # Package source → staging → Lambda
+```
+
+**NOT**:
+```bash
+agentcore deploy      # ❌ Staging won't have workspace dirs
+./deploy.sh           # Too late - already deployed
+```
+
 ### Verification
 
-Check that staging has the directories:
+After running `./deploy.sh`, verify directories are in source tree:
 
 ```bash
-ls -lh agentcore/.cache/aidlcagent/staging/ | grep kiro
+ls -la ai-dlc-agent/kiro-sandbox/services/
+# Should show: java-api, python-processor, node-gateway
 
-# Expected output:
-# drwxrwxr-x  5 sk sk 4.0K May 20 02:17 kiro-sandbox
-# drwxrwxr-x  4 sk sk 4.0K May 20 02:17 .kiro
+ls -la ai-dlc-agent/.kiro/
+# Should show: aws-aidlc-rule-details, steering
+```
+
+After deployment, test immediately:
+
+```bash
+agentcore invoke '{
+  "action": "start",
+  "repo": "kiro-sandbox/services/java-api",
+  "story": "Test story",
+  "auto_approve": true
+}'
+```
+
+Check CloudWatch logs for:
+```
+[AgentCore] AIDLC_WORKSPACE_ROOT=/var/task
+[AgentCore] Copying repo from /var/task/kiro-sandbox/services/java-api to /tmp/aidlc-workdir/.../java-api
+[AgentCore] Using working copy: /tmp/aidlc-workdir/.../java-api
 ```
 
 ---
@@ -246,45 +328,90 @@ aws s3 ls s3://aidlc-agentcore-sessions/sessions/
 
 ## Troubleshooting
 
-### Session shows "Permission denied: /var/kiro-sandbox"
+### Session shows "Permission denied: /var/task/kiro-sandbox"
 
-**Problem**: Old deployment without the workspace directories.
+**Problem**: Workflow trying to write to read-only `/var/task`.
 
-**Fix**: Redeploy with the fix:
+**Diagnosis**:
+```bash
+# Check CloudWatch logs
+aws logs filter-log-events \
+  --log-group-name "/aws/bedrock-agentcore/runtimes/aidlcagent_aidlcagent-GYGZ5sAxEy-DEFAULT" \
+  --filter-pattern "AIDLC_WORKSPACE_ROOT" \
+  --start-time $(($(date +%s) - 600))000
+
+# Should see:
+[AgentCore] AIDLC_WORKSPACE_ROOT=/var/task
+[AgentCore] Copying repo from /var/task/...
+```
+
+**Fix**: Ensure latest code is deployed:
 ```bash
 ./deploy.sh
 agentcore deploy
 ```
 
-### Session shows "No such file or directory: /var/task/kiro-sandbox"
+### Session shows "Source repo not found at /var/task/kiro-sandbox"
 
-**Problem**: `deploy.sh` wasn't run before deployment.
+**Problem**: `kiro-sandbox/` wasn't included in the Lambda deployment package.
 
-**Fix**: Run the deployment script:
+**Diagnosis**:
 ```bash
-./deploy.sh
-agentcore deploy  # Re-deploy
+# Check if kiro-sandbox is in source tree
+ls -la ai-dlc-agent/kiro-sandbox/
+
+# If missing, it wasn't copied before deployment
 ```
 
-### deploy.sh says "Staging directory not found"
-
-**Problem**: `agentcore deploy` hasn't been run yet to create the staging directory.
-
-**Fix**: Run deployment once to create staging, then use the script:
+**Fix**:
 ```bash
-agentcore deploy   # Creates staging (may fail, that's OK)
-./deploy.sh        # Copy workspace dirs
-agentcore deploy   # Deploy with directories included
+./deploy.sh           # Copy to source tree
+agentcore deploy      # Redeploy with directories
 ```
+
+### Workflow starts but makes no progress
+
+**Problem**: Session stuck on first stage, no subsequent stages complete.
+
+**Diagnosis**:
+```bash
+# Check session state
+aws s3 cp s3://aidlc-agentcore-sessions/sessions/{SESSION_ID}.json - | jq
+
+# Look for:
+"pending_stage": "workspace-detection",
+"completed_stages": ["workspace-detection"],
+"error": null  # No error means it's running
+```
+
+**Not a problem**: Stages take 1-3 minutes each. Wait 5-10 minutes before assuming failure.
+
+### CloudWatch logs show no copy messages
+
+**Problem**: Runtime copy logic not executing.
+
+**Diagnosis**:
+```bash
+aws logs filter-log-events \
+  --log-group-name "/aws/bedrock-agentcore/runtimes/..." \
+  --filter-pattern "Copying repo" \
+  --start-time $(($(date +%s) - 300))000
+```
+
+**Fix**: 
+1. Verify `agentcore_entrypoint.py` has the copy logic
+2. Check `AIDLC_WORKSPACE_ROOT=/var/task` in `agentcore.json`
+3. Redeploy
 
 ### Works locally but fails in Lambda
 
 **Checklist**:
+- [ ] `./deploy.sh` run **before** `agentcore deploy`?
+- [ ] `kiro-sandbox/` present in `ai-dlc-agent/` directory?
 - [ ] `AIDLC_WORKSPACE_ROOT=/var/task` in `agentcore.json`?
-- [ ] `deploy.sh` run before `agentcore deploy`?
-- [ ] `kiro-sandbox/` present in staging? (`ls agentcore/.cache/aidlcagent/staging/`)
 - [ ] S3 bucket configured? (`SESSION_BUCKET=aidlc-agentcore-sessions`)
-- [ ] IAM role has S3 permissions? (Check `S3SessionPersistence` policy)
+- [ ] IAM role has S3 permissions? (Policy: `S3SessionPersistence`)
+- [ ] CloudWatch logs show copy operation?
 
 ---
 

@@ -2,27 +2,66 @@
 
 ## Problem
 
-The AI-DLC agent expects to work on repositories in the `kiro-sandbox/` directory structure. When deployed to AWS Lambda via AgentCore, the code runs in a read-only `/var/task/` directory, and the `kiro-sandbox/` directory structure isn't available by default.
+The AI-DLC agent expects to work on repositories in the `kiro-sandbox/` directory structure. When deployed to AWS Lambda via AgentCore:
+
+1. Code runs in `/var/task/` which is **read-only**
+2. Workflow needs to **write** `aidlc-docs/` artifacts to the repository
+3. Writing to `/var/task/kiro-sandbox/.../aidlc-docs/` fails with permission error
 
 **Error seen**:
 ```
-Workflow failed: [Errno 13] Permission denied: '/var/kiro-sandbox'
+Workflow failed: [Errno 13] Permission denied: '/var/task/kiro-sandbox'
 ```
 
-## Solution
+## Solution (3-Part Fix)
 
-### 1. Workspace Root Override
+### 1. Bundle Workspace in Deployment
 
-The workflow now supports `AIDLC_WORKSPACE_ROOT` environment variable to override the default workspace root:
+Copy `kiro-sandbox/` and `.kiro/` into the source tree so they get packaged into Lambda.
 
-**Code change** (`app/workflow.py`):
+**Deployment script** (`deploy.sh`):
+```bash
+#!/bin/bash
+# Copy workspace directories into ai-dlc-agent/ (source tree)
+# agentcore deploy will package everything from codeLocation: "."
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Copy to SOURCE, not staging (staging gets rebuilt)
+cp -r "$WORKSPACE_ROOT/kiro-sandbox" "$SCRIPT_DIR/"
+cp -r "$WORKSPACE_ROOT/.kiro" "$SCRIPT_DIR/"
+```
+
+**Usage**:
+```bash
+cd ai-dlc-agent
+./deploy.sh           # Must run BEFORE agentcore deploy
+agentcore deploy
+```
+
+### 2. Runtime Copy to /tmp
+
+Copy the repo from `/var/task` (read-only) to `/tmp` (writable) before running the workflow.
+
+**Code change** (`agentcore_entrypoint.py`):
 ```python
-# Allow override via env var for Lambda deployments
-if "AIDLC_WORKSPACE_ROOT" in os.environ and os.environ["AIDLC_WORKSPACE_ROOT"]:
-    _WORKSPACE_ROOT = Path(os.environ["AIDLC_WORKSPACE_ROOT"]).resolve()
+workspace_root = os.environ.get("AIDLC_WORKSPACE_ROOT", "")
+if workspace_root == "/var/task":
+    # Lambda: copy from read-only /var/task to writable /tmp
+    source_repo = Path(f"/var/task/{session.repo}")
+    temp_repo = Path(f"/tmp/aidlc-workdir/{session.session_id}/{repo_name}")
+    
+    shutil.copytree(source_repo, temp_repo, dirs_exist_ok=True)
+    target_repo_path = str(temp_repo.resolve())  # Pass absolute path
 else:
-    _WORKSPACE_ROOT = _AGENT_DIR.parent.resolve()
+    # Local: use repo path as-is
+    target_repo_path = session.repo
+
+result = orchestrator.run(target_repo=target_repo_path, ...)
 ```
+
+### 3. Configure Workspace Root
 
 **AgentCore configuration** (`agentcore/agentcore.json`):
 ```json
@@ -33,27 +72,13 @@ else:
 }
 ```
 
-This tells the workflow that in Lambda, the workspace root is `/var/task/` (where the Lambda code is deployed), not the parent of `ai-dlc-agent/`.
-
-### 2. Include kiro-sandbox in Deployment Package
-
-The `kiro-sandbox/` and `.kiro/` directories must be copied into the Lambda deployment package.
-
-**Automated deployment script** (`deploy.sh`):
-```bash
-#!/bin/bash
-# Builds, copies workspace dirs, and deploys
-
-agentcore build                          # Step 1: Build package
-cp -r ../kiro-sandbox staging/           # Step 2: Add kiro-sandbox
-cp -r ../.kiro staging/                  # Step 3: Add .kiro rules
-agentcore deploy                         # Step 4: Deploy to AWS
-```
-
-**Usage**:
-```bash
-cd ai-dlc-agent
-./deploy.sh
+**Workflow configuration** (`app/workflow.py`):
+```python
+# Allow override via env var for Lambda deployments
+if "AIDLC_WORKSPACE_ROOT" in os.environ and os.environ["AIDLC_WORKSPACE_ROOT"]:
+    _WORKSPACE_ROOT = Path(os.environ["AIDLC_WORKSPACE_ROOT"]).resolve()
+else:
+    _WORKSPACE_ROOT = _AGENT_DIR.parent.resolve()
 ```
 
 ## How It Works

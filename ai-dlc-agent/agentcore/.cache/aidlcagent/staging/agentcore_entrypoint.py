@@ -395,21 +395,28 @@ def _run_workflow_in_background(session: _SessionState) -> None:
 
         # In Lambda, /var/task is read-only. Copy repo to /tmp for writing.
         import shutil
-        from pathlib import Path
 
         workspace_root = os.environ.get("AIDLC_WORKSPACE_ROOT", "")
+        print(f"[AgentCore] AIDLC_WORKSPACE_ROOT={workspace_root}", flush=True)
         if workspace_root == "/var/task":
             # Lambda environment: copy repo from /var/task to /tmp
+            # Source: /var/task/kiro-sandbox/services/java-api
+            # Dest: /tmp/aidlc-workdir/{session_id}/java-api
             source_repo = Path(f"/var/task/{session.repo}")
-            temp_repo = Path(f"/tmp/aidlc-workdir/{session.session_id}/{session.repo}")
+            repo_name = source_repo.name  # e.g., "java-api"
+            temp_repo = Path(f"/tmp/aidlc-workdir/{session.session_id}/{repo_name}")
             temp_repo.parent.mkdir(parents=True, exist_ok=True)
 
+            print(f"[AgentCore] Copying repo from {source_repo} to {temp_repo}", flush=True)
             log(f"Copying repo from {source_repo} to {temp_repo} (Lambda read-only workaround)")
             if source_repo.exists():
                 shutil.copytree(source_repo, temp_repo, dirs_exist_ok=True)
-                target_repo_path = str(temp_repo)
+                # Pass absolute path - workflow.py will use it directly since Path(base) / Path(absolute) = absolute
+                target_repo_path = str(temp_repo.resolve())
+                print(f"[AgentCore] Using working copy: {target_repo_path}", flush=True)
                 log(f"Using working copy: {target_repo_path}")
             else:
+                print(f"[AgentCore] WARNING: Source repo not found at {source_repo}", flush=True)
                 log(f"WARNING: Source repo not found at {source_repo}, using as-is")
                 target_repo_path = session.repo
         else:
