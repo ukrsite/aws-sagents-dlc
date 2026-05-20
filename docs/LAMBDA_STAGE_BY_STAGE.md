@@ -1,31 +1,33 @@
-# Lambda Stage-by-Stage Execution
+# AgentCore Runtime Stage-by-Stage Execution
 
 **Date**: 2026-05-20  
 **Status**: ✅ Implemented (Option 2 - Quick Hack)
+
+**Note**: AgentCore Runtime uses serverless compute with execution time limits. This guide explains the stage-by-stage execution pattern.
 
 ---
 
 ## Problem
 
-AWS Lambda has a **15-minute maximum execution timeout**, but the AI-DLC workflow takes ~15-20 minutes to complete all 13 stages. The original implementation ran all stages in a single Lambda invocation using a background thread, which failed when Lambda terminated at the timeout.
+The serverless runtime has an **idle timeout** (default 15 minutes, configurable up to 8 hours), but the AI-DLC workflow takes ~15-20 minutes to complete all 13 stages. The original implementation ran all stages in a single invocation using a background thread, which could fail at the timeout.
 
 **Original Error** (after ~15 minutes):
 ```
 Error: [object Object]
 ```
 
-CloudWatch logs showed workflow progressed through ~8 stages (workspace-detection through nfr-design) before hitting timeout during code-generation stage.
+CloudWatch logs showed workflow progressed through ~8 stages (workspace-detection through nfr-design) before potentially hitting timeout during code-generation stage.
 
 ---
 
 ## Solution: Stage-by-Stage Execution
 
-Run **one stage per Lambda invocation**, persisting state and artifacts to S3 between invocations.
+Run **one stage per invocation**, persisting state and artifacts to S3 between invocations.
 
 ### Architecture
 
 ```
-Client                  Lambda (Invocation 1)        S3
+Client                  Runtime (Invocation 1)       S3
   │                            │                      │
   ├─ POST /invocations         │                      │
   │  action: "start"           │                      │
@@ -51,7 +53,7 @@ Client                  Lambda (Invocation 1)        S3
 
 1. **New function: `_run_next_stage_sync()`**
    - Replaces background thread execution
-   - Runs synchronously in Lambda handler
+   - Runs synchronously in runtime handler
    - Checks `aidlc-state.md` for completed stages
    - Finds next incomplete stage
    - **Hack**: Monkey-patches `orchestrator._get_completed_stages()` to return fake completion list
@@ -60,7 +62,7 @@ Client                  Lambda (Invocation 1)        S3
 
 2. **New action: `continue`**
    - Client calls with `{"action": "continue", "session_id": "..."}`
-   - Lambda loads session from S3
+   - Runtime loads session from S3
    - Runs next stage
    - Returns status and next_action hint
 
@@ -149,7 +151,7 @@ def _restore_artifacts_from_s3(session_id, working_repo_path):
 
 ### /tmp Persistence
 
-Lambda's `/tmp` is ephemeral - wiped between invocations. The flow:
+The runtime's `/tmp` is ephemeral - wiped between invocations. The flow:
 
 **First invocation (stage 1)**:
 1. Copy `/var/task/kiro-sandbox/services/java-api` → `/tmp/aidlc-workdir/{session_id}/java-api`
@@ -241,24 +243,24 @@ The script:
 ### Before (Single Invocation)
 
 - **Duration**: ~15-20 minutes
-- **Lambda invocations**: 1
-- **Result**: Timeout after 15 minutes ❌
+- **Invocations**: 1
+- **Result**: Risk of timeout after idle period ❌
 
 ### After (Stage-by-Stage)
 
 - **Duration**: ~15-20 minutes (same total time)
-- **Lambda invocations**: 13 (one per stage)
+- **Invocations**: 13 (one per stage)
 - **Stage duration**: 1-3 minutes each
 - **Result**: Completes successfully ✅
 
 ### Cost Impact
 
-**Lambda billing**: Per 100ms of execution time
+**Serverless billing**: Per 100ms of execution time
 
 **Before**: 1 invocation × 15 min × $X/100ms = $Y  
 **After**: 13 invocations × ~1.2 min avg × $X/100ms = similar to $Y
 
-Total execution time is the same, so cost is roughly the same. The benefit is **avoiding timeouts**, not reducing cost.
+Total execution time is the same, so cost is roughly the same. The benefit is **avoiding timeout risks**, not reducing cost.
 
 **S3 costs**:
 - PUT requests: 13 artifact uploads × $0.005 per 1000 = negligible
@@ -395,14 +397,14 @@ aws s3 cp s3://aidlc-agentcore-sessions/artifacts/{session_id}/aidlc-docs.tar.gz
 
 **Fix**: Check CloudWatch logs for stage completion messages, verify `update_workflow_state` skill is working
 
-### Lambda timeout still occurs
+### Timeout still occurs
 
-**Symptom**: Timeout error after 15 minutes
+**Symptom**: Timeout error during long-running stage
 
-**Cause**: Single stage taking >15 minutes (e.g., code-generation on large project)
+**Cause**: Single stage taking longer than idle timeout (e.g., code-generation on large project)
 
 **Fix**: 
-1. Increase Lambda timeout to 15 minutes (AWS max) in `agentcore.json`
+1. Increase idle timeout in AgentCore Runtime settings (up to 8 hours max)
 2. Consider breaking large stages into sub-stages
 3. Switch to Opus 4.6 (faster output) or increase `max_output_tokens`
 
@@ -421,11 +423,11 @@ aws s3 cp s3://aidlc-agentcore-sessions/artifacts/{session_id}/aidlc-docs.tar.gz
 ## Commit Message
 
 ```
-fix: implement stage-by-stage Lambda execution to avoid 15min timeout
+fix: implement stage-by-stage execution to handle runtime timeout limits
 
-Lambda's 15-minute timeout was killing the workflow mid-execution after
-~8 stages. This change implements stage-by-stage execution where each
-Lambda invocation runs ONE stage instead of all 13 stages.
+The serverless runtime's idle timeout could kill long workflows mid-execution.
+This change implements stage-by-stage execution where each invocation runs
+ONE stage instead of all 13 stages.
 
 Changes:
 - Add _run_next_stage_sync() - runs next incomplete stage synchronously
@@ -436,8 +438,8 @@ Changes:
 - Persist working_repo_path in session state
 
 Architecture:
-1. Client: action="start" → Lambda runs stage 1, saves to S3
-2. Client: action="continue" → Lambda runs stage 2, saves to S3
+1. Client: action="start" → Runtime runs stage 1, saves to S3
+2. Client: action="continue" → Runtime runs stage 2, saves to S3
 3. Repeat 13 times until status="complete"
 
 This is a HACK (Option 2) - proper fix would refactor

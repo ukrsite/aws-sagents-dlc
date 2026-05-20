@@ -3,7 +3,7 @@
 > Key insights from building a 13-stage multi-agent workflow system
 
 **Project:** AI-Driven Development Life Cycle Agent  
-**Course:** Stanford CS224V - Conversational Virtual Assistants with LLMs  
+**Course:** AWS AI - Conversational Virtual Assistants with LLMs  
 **Version:** 1.2 (Production)  
 **Last Updated:** 2026-05-20
 
@@ -388,7 +388,7 @@ code_gen_hint = (
 
 ### Lesson 12: S3 Persistence is Mandatory for Production
 
-**Context**: Initial deployment used in-memory sessions in Lambda. Sessions lost after 5 minutes when Lambda container recycled.
+**Context**: Initial deployment used in-memory sessions in AgentCore Runtime. Sessions lost after 5 minutes when runtime container recycled.
 
 **Problem**: "Session not found" errors after ~3-5 minutes. Workflows interrupted mid-execution.
 
@@ -397,7 +397,7 @@ code_gen_hint = (
 **Solution**: S3 session persistence:
 
 ```python
-# Lambda environment
+# AgentCore Runtime environment
 USE_S3_PERSISTENCE=true
 SESSION_BUCKET=aidlc-agentcore-sessions
 
@@ -407,9 +407,9 @@ def _save_session_to_s3(session_id, session_data):
     s3_client.put_object(Bucket=bucket, Key=key, Body=json.dumps(session_data))
 ```
 
-**Impact**: Zero session loss errors after S3 enabled. Workflows survive Lambda container recycling.
+**Impact**: Zero session loss errors after S3 enabled. Workflows survive AgentCore Runtime container recycling.
 
-**Takeaway**: For AgentCore/Lambda deployments, S3 session persistence is mandatory. In-memory sessions only work for <5 minute workflows.
+**Takeaway**: For AgentCore Runtime deployments, S3 session persistence is mandatory. In-memory sessions only work for very short workflows.
 
 **File**: `agentcore_entrypoint.py`, **Docs**: `docs/agentcore_s3_deployment.md`
 
@@ -646,7 +646,7 @@ custom_prompt=(
 
 **Challenges discovered**:
 - Session persistence (S3 required)
-- Container recycling (Lambda constraints)
+- Container recycling (serverless runtime constraints)
 - Cost at scale (token budgets essential)
 - Timeout handling (multiple levels needed)
 - Observability (CloudWatch metrics)
@@ -801,7 +801,7 @@ custom_prompt=(
 
 <div align="center">
 
-**Built for Stanford CS224V**
+**Built for AWS AI**
 
 20+ lessons from building production LLM agents
 

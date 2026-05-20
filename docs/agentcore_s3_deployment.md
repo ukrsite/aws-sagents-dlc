@@ -2,18 +2,18 @@
 
 ## Problem Solved
 
-Deployed AgentCore workflows were timing out with "Session not found" errors after a few minutes because sessions stored in Lambda's `/tmp` directory were lost when:
-- Lambda container recycled
+Deployed AgentCore workflows were timing out with "Session not found" errors after a few minutes because sessions stored in the runtime's `/tmp` directory were lost when:
+- Runtime container recycled
 - Different container handled subsequent invocations
-- Lambda timeout occurred (15-minute max)
+- Idle timeout occurred
 
-**Solution**: S3-backed session persistence enables workflows to run for 15+ minutes across container boundaries.
+**Solution**: S3-backed session persistence enables workflows to run for long durations across container boundaries.
 
 ## Important: Local Development vs Deployed AgentCore
 
 **Default behavior has changed**:
 - ✅ **Local development** (`agentcore dev`): S3 persistence is **OFF by default** (`USE_S3_PERSISTENCE=false`)
-- ⚠️ **Deployed AgentCore** (Lambda): You **MUST** set `USE_S3_PERSISTENCE=true` explicitly
+- ⚠️ **Deployed AgentCore Runtime**: You **MUST** set `USE_S3_PERSISTENCE=true` explicitly
 
 This prevents the S3 client from hanging during local development when AWS credentials aren't configured.
 
@@ -60,7 +60,7 @@ aws s3api put-bucket-lifecycle-configuration \
 
 ### 2. Configure IAM Permissions
 
-The AgentCore Lambda execution role needs S3 access.
+The AgentCore Runtime execution role needs S3 access.
 
 **Required permissions**:
 ```json
@@ -112,7 +112,7 @@ aws iam attach-role-policy \
 
 ⚠️ **CRITICAL**: You **MUST** explicitly enable S3 persistence for deployed AgentCore.
 
-Add to AgentCore Runtime Lambda function configuration:
+Add to AgentCore Runtime function configuration:
 
 ```bash
 # REQUIRED: Enable S3 persistence (default is false for local dev)
@@ -144,28 +144,28 @@ aws lambda update-function-configuration \
 ```mermaid
 sequenceDiagram
     participant Client
-    participant Lambda1 as Lambda Container 1
+    participant Runtime1 as Runtime Container 1
     participant S3 as S3 Bucket
-    participant Lambda2 as Lambda Container 2
+    participant Runtime2 as Runtime Container 2
 
-    Client->>Lambda1: POST /invocations (action=start)
-    Lambda1->>Lambda1: Create session in memory
-    Lambda1->>S3: Save session state
-    Lambda1-->>Client: 200 {session_id, status=running}
+    Client->>Runtime1: POST /invocations (action=start)
+    Runtime1->>Runtime1: Create session in memory
+    Runtime1->>S3: Save session state
+    Runtime1-->>Client: 200 {session_id, status=running}
 
-    Note over Lambda1: Workflow runs in background
+    Note over Runtime1: Workflow runs in background
 
-    Client->>Lambda2: POST /invocations (action=approve)
-    Lambda2->>Lambda2: Session not in memory
-    Lambda2->>S3: Load session state
-    Lambda2->>S3: Update session state
-    Lambda2-->>Client: 200 {status=running}
+    Client->>Runtime2: POST /invocations (action=approve)
+    Runtime2->>Runtime2: Session not in memory
+    Runtime2->>S3: Load session state
+    Runtime2->>S3: Update session state
+    Runtime2-->>Client: 200 {status=running}
 
-    Note over Lambda2: Workflow continues
+    Note over Runtime2: Workflow continues
 
-    Lambda2->>S3: Update session state (stage complete)
-    Lambda2->>S3: Delete session (workflow complete)
-    Lambda2-->>Client: 200 {status=complete, result}
+    Runtime2->>S3: Update session state (stage complete)
+    Runtime2->>S3: Delete session (workflow complete)
+    Runtime2-->>Client: 200 {status=complete, result}
 ```
 
 ### Session Storage Format
@@ -254,7 +254,7 @@ aws s3 ls s3://aidlc-agentcore-sessions/sessions/ | grep $SESSION
 1. S3 bucket exists and is accessible
 2. IAM role has correct permissions
 3. `SESSION_BUCKET` environment variable matches actual bucket name
-4. Lambda has network access to S3 (VPC configuration)
+4. Runtime has network access to S3 (VPC configuration)
 
 **Debug command**:
 ```bash
@@ -269,7 +269,7 @@ aws logs tail /aws/lambda/aidlc-agentcore --follow
 
 ### Workflow Still Times Out
 
-**Cause**: Lambda 15-minute timeout is hard limit.
+**Cause**: Runtime 15-minute timeout is hard limit.
 
 **Workaround**: Break large stories into smaller units or use Step Functions for orchestration.
 
@@ -303,11 +303,11 @@ aws lambda update-function-configuration \
 
 ## Summary
 
-✅ **What changed**: Sessions now persist to S3 across Lambda container boundaries
+✅ **What changed**: Sessions now persist to S3 across Runtime container boundaries
 
 ✅ **What to deploy**:
 1. Create S3 bucket (`aidlc-agentcore-sessions`)
-2. Add IAM permissions to Lambda execution role
+2. Add IAM permissions to Runtime execution role
 3. Set `SESSION_BUCKET` environment variable
 4. Deploy updated `agentcore_entrypoint.py`
 

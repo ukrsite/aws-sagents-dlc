@@ -1,8 +1,8 @@
-# AgentCore Lambda Workspace Configuration
+# AgentCore Runtime Workspace Configuration
 
 ## Problem
 
-The AI-DLC agent expects to work on repositories in the `kiro-sandbox/` directory structure. When deployed to AWS Lambda via AgentCore:
+The AI-DLC agent expects to work on repositories in the `kiro-sandbox/` directory structure. When deployed to AWS Bedrock AgentCore Runtime:
 
 1. Code runs in `/var/task/` which is **read-only**
 2. Workflow needs to **write** `aidlc-docs/` artifacts to the repository
@@ -17,7 +17,7 @@ Workflow failed: [Errno 13] Permission denied: '/var/task/kiro-sandbox'
 
 ### 1. Bundle Workspace in Deployment
 
-Copy `kiro-sandbox/` and `.kiro/` into the source tree so they get packaged into Lambda.
+Copy `kiro-sandbox/` and `.kiro/` into the source tree so they get packaged into AgentCore Runtime.
 
 **Deployment script** (`deploy.sh`):
 ```bash
@@ -48,7 +48,7 @@ Copy the repo from `/var/task` (read-only) to `/tmp` (writable) before running t
 ```python
 workspace_root = os.environ.get("AIDLC_WORKSPACE_ROOT", "")
 if workspace_root == "/var/task":
-    # Lambda: copy from read-only /var/task to writable /tmp
+    # AgentCore Runtime: copy from read-only /var/task to writable /tmp
     source_repo = Path(f"/var/task/{session.repo}")
     temp_repo = Path(f"/tmp/aidlc-workdir/{session.session_id}/{repo_name}")
     
@@ -74,7 +74,7 @@ result = orchestrator.run(target_repo=target_repo_path, ...)
 
 **Workflow configuration** (`app/workflow.py`):
 ```python
-# Allow override via env var for Lambda deployments
+# Allow override via env var for AgentCore Runtime deployments
 if "AIDLC_WORKSPACE_ROOT" in os.environ and os.environ["AIDLC_WORKSPACE_ROOT"]:
     _WORKSPACE_ROOT = Path(os.environ["AIDLC_WORKSPACE_ROOT"]).resolve()
 else:
@@ -90,14 +90,14 @@ target_repo = "kiro-sandbox/services/java-api"
 abs_target_repo = /home/sk/vscode/aws-sagents-dlc/kiro-sandbox/services/java-api
 ```
 
-### Lambda Deployment
+### AgentCore Runtime Deployment
 ```
 _WORKSPACE_ROOT = /var/task/  (from env var)
 target_repo = "kiro-sandbox/services/java-api"
 abs_target_repo = /var/task/kiro-sandbox/services/java-api
 ```
 
-The Lambda package structure:
+The AgentCore Runtime package structure:
 ```
 /var/task/
 ├── agentcore_entrypoint.py
@@ -134,7 +134,7 @@ Check CloudWatch logs for:
 ## Alternative Approaches Considered
 
 ### ❌ Use /tmp for working directory
-- Lambda has 10GB `/tmp` storage
+- AgentCore Runtime has 10GB `/tmp` storage
 - Would require cloning repos on each invocation
 - Adds complexity and latency
 
@@ -147,19 +147,19 @@ Check CloudWatch logs for:
 - Clean separation of concerns
 - No performance impact
 - Explicit configuration via env var
-- Works in both local and Lambda environments
+- Works in both local and AgentCore Runtime environments
 
 ## Troubleshooting
 
 ### Session shows "Permission denied: /var/kiro-sandbox"
-- The `AIDLC_WORKSPACE_ROOT` env var isn't set in Lambda
+- The `AIDLC_WORKSPACE_ROOT` env var isn't set in AgentCore Runtime
 - **Fix**: Redeploy with updated `agentcore.json`
 
 ### Session shows "No such file or directory: /var/task/kiro-sandbox"
 - The `kiro-sandbox` directory wasn't copied to staging before deployment
 - **Fix**: Use `./deploy.sh` script instead of raw `agentcore deploy`
 
-### Works locally but fails in Lambda
+### Works locally but fails in AgentCore Runtime
 - Check CloudWatch logs for the resolved `abs_target_repo` path
 - Verify staging directory contents: `ls agentcore/.cache/aidlcagent/staging/`
 - Ensure `kiro-sandbox/` is present in staging before deployment
@@ -167,6 +167,6 @@ Check CloudWatch logs for:
 ## Related Files
 
 - `app/workflow.py:555-563` - Workspace root resolution
-- `agentcore/agentcore.json` - Lambda environment variables
+- `agentcore/agentcore.json` - AgentCore Runtime environment variables
 - `deploy.sh` - Automated deployment script
 - `prepare_deployment.sh` - Manual staging preparation

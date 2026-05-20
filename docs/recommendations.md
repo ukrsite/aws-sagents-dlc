@@ -3,7 +3,7 @@
 > Reusable patterns and best practices from the AWS SAGents DLC project
 
 **Project:** AI-Driven Development Life Cycle Agent  
-**Course:** Stanford CS224V - Conversational Virtual Assistants with LLMs  
+**Course:** AWS AI - Conversational Virtual Assistants with LLMs  
 **Version:** 1.2 (Production)  
 **Last Updated:** 2026-05-20
 
@@ -626,7 +626,7 @@ if is_brownfield:
 
 ### Pattern: S3 Session Persistence
 
-**Problem**: Lambda containers recycle; in-memory sessions lost after 5 minutes.
+**Problem**: AgentCore Runtime containers recycle; in-memory sessions lost after idle timeout.
 
 **Solution**: Persist sessions to S3; survive container boundaries.
 
@@ -657,12 +657,12 @@ class BedrockAgentCoreApp:
 
 **Configuration**:
 ```bash
-# Lambda environment variables
+# AgentCore Runtime environment variables
 USE_S3_PERSISTENCE=true
 SESSION_BUCKET=aidlc-agentcore-sessions
 ```
 
-**Impact**: Enables 15-minute workflows across Lambda container boundaries. Prevents "Session not found" errors.
+**Impact**: Enables long-running workflows across AgentCore Runtime container boundaries. Prevents "Session not found" errors.
 
 ---
 
@@ -862,7 +862,7 @@ def _read_rule_file(stage_name: str) -> str:
 
 <div align="center">
 
-**Built for Stanford CS224V**
+**Built for AWS AI**
 
 These patterns achieved **$2-3 per workflow** with **100% approval reliability**
 

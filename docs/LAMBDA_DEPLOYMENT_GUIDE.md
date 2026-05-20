@@ -1,9 +1,11 @@
-# Lambda Deployment Guide - AI-DLC AgentCore
+# AgentCore Runtime Deployment Guide
 
-> Complete guide for deploying AI-DLC agent to AWS Lambda via Bedrock AgentCore
+> Complete guide for deploying AI-DLC agent to AWS Bedrock AgentCore Runtime
 
 **Last Updated**: 2026-05-20  
 **Status**: ✅ Working - Tested Successfully
+
+**Note**: AgentCore Runtime uses serverless compute (Lambda) under the hood, but you deploy through the AgentCore CLI, not directly to Lambda.
 
 ---
 
@@ -14,10 +16,10 @@
 Workflow failed: [Errno 13] Permission denied: '/var/task/kiro-sandbox'
 ```
 
-**Root Cause**: Lambda's `/var/task` is **read-only**, but the workflow needs to **write** `aidlc-docs/` artifacts to the target repository.
+**Root Cause**: The serverless runtime's `/var/task` directory is **read-only**, but the workflow needs to **write** `aidlc-docs/` artifacts to the target repository.
 
 **Solution**: 
-1. Copy `kiro-sandbox/` and `.kiro/` into Lambda deployment package
+1. Copy `kiro-sandbox/` and `.kiro/` into AgentCore deployment package
 2. At runtime, copy repo from `/var/task` (read-only) to `/tmp` (writable)
 3. Run workflow on the `/tmp` copy
 
@@ -31,7 +33,7 @@ cd /home/sk/vscode/aws-sagents-dlc/ai-dlc-agent
 # 1. Copy workspace directories to source tree (REQUIRED before each deploy)
 ./deploy.sh
 
-# 2. Deploy to AWS Lambda
+# 2. Deploy to AgentCore Runtime
 agentcore deploy
 ```
 
@@ -68,7 +70,7 @@ else:
 result = orchestrator.run(target_repo=target_repo_path, ...)
 ```
 
-**Why**: Lambda's `/var/task` is read-only. We need a writable location for `aidlc-docs/` artifacts.
+**Why**: The serverless runtime's `/var/task` is read-only. We need a writable location for `aidlc-docs/` artifacts.
 
 ### 2. Workspace Root Configuration
 
@@ -94,7 +96,7 @@ else:
 }
 ```
 
-**Why**: Tells the workflow where to find bundled repositories in Lambda.
+**Why**: Tells the workflow where to find bundled repositories in the serverless runtime.
 
 ### 3. Deployment Script (CRITICAL)
 
@@ -129,7 +131,7 @@ target_repo = "kiro-sandbox/services/java-api"
 abs_target_repo = /home/sk/vscode/aws-sagents-dlc/kiro-sandbox/services/java-api ✅
 ```
 
-### Lambda (Before Fix) ❌
+### AgentCore Runtime (Before Fix) ❌
 ```
 _WORKSPACE_ROOT = /var/task/
 target_repo = "kiro-sandbox/services/java-api"
@@ -140,7 +142,7 @@ When workflow tries: Path("/var/task/kiro-sandbox/services/java-api/aidlc-docs")
 Result: [Errno 13] Permission denied ❌
 ```
 
-### Lambda (After Fix) ✅
+### AgentCore Runtime (After Fix) ✅
 ```
 Step 1: Copy at runtime
   Source: /var/task/kiro-sandbox/services/java-api (read-only, bundled)
@@ -153,7 +155,7 @@ Step 3: Workflow runs on /tmp copy
   Path("/tmp/aidlc-workdir/.../java-api/aidlc-docs").mkdir() ✅ Success!
 ```
 
-### Lambda Package Structure
+### AgentCore Runtime Package Structure
 
 ```
 /var/task/ (read-only)
@@ -215,7 +217,7 @@ Step 3: Workflow runs on /tmp copy
    - Rebuild staging from source (includes kiro-sandbox and .kiro)
    - Package all files
    - Upload to S3
-   - Update Lambda function
+   - Update AgentCore Runtime function
    - Apply environment variables from `agentcore.json`
 
 ### Critical Notes
@@ -227,7 +229,7 @@ Why: `agentcore deploy` rebuilds the staging directory from the source tree (`co
 **Workflow must be**:
 ```bash
 ./deploy.sh           # Copy to source
-agentcore deploy      # Package source → staging → Lambda
+agentcore deploy      # Package source → staging → AgentCore Runtime
 ```
 
 **NOT**:
@@ -403,7 +405,7 @@ aws logs filter-log-events \
 2. Check `AIDLC_WORKSPACE_ROOT=/var/task` in `agentcore.json`
 3. Redeploy
 
-### Works locally but fails in Lambda
+### Works locally but fails in AgentCore Runtime
 
 **Checklist**:
 - [ ] `./deploy.sh` run **before** `agentcore deploy`?
@@ -477,7 +479,7 @@ aws logs filter-log-events \
 
 ## Environment Variables
 
-**All environment variables** in Lambda (from `agentcore.json`):
+**All environment variables** in AgentCore Runtime (from `agentcore.json`):
 
 ```json
 {
@@ -535,6 +537,6 @@ aws s3 ls s3://aidlc-agentcore-sessions/sessions/
 
 **AWS SAGents DLC - Bedrock AgentCore Runtime**
 
-Lambda deployment now working with workspace bundling
+AgentCore Runtime deployment now working with workspace bundling
 
 </div>

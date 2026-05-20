@@ -249,7 +249,7 @@ agentcore dev
 - Sessions stored in S3 (durable)
 - Survive container recycling
 - Workflows complete successfully
-- Maximum workflow duration: 15 minutes (Lambda timeout)
+- Maximum workflow duration: configurable idle timeout (up to 8 hours)
 
 ---
 

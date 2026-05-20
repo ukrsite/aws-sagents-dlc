@@ -2,11 +2,11 @@
 
 > Comprehensive documentation for the AI-Driven Development Life Cycle Agent system
 
-[![Course](https://img.shields.io/badge/Stanford-CS224V-red.svg)](https://cs224v.stanford.edu/)
+[![Course](https://img.shields.io/badge/Course-AWS%20AI-orange.svg)](https://aws.amazon.com/)
 [![Status](https://img.shields.io/badge/Status-Production%20Ready-success.svg)](https://github.com)
 [![Deployed](https://img.shields.io/badge/AWS-Bedrock%20AgentCore-orange.svg)](https://aws.amazon.com/bedrock/)
 
-**Course Project**: Stanford CS224V - Conversational Virtual Assistants with LLMs  
+**Course Project**: AWS AI - Conversational Virtual Assistants with LLMs  
 **Last Updated**: 2026-05-20  
 **Status**: ✅ Production-ready with S3 persistence, fully deployed
 
@@ -160,7 +160,7 @@ This verifies:
          │  (Bedrock AgentCore)     │
          │  - Python 3.12           │
          │  - HTTP Protocol         │
-         │  - 15-min timeout        │
+         │  - Idle timeout (15min)  │
          │  - 3008 MB memory        │
          └───────┬──────────┬───────┘
                  │          │
@@ -360,9 +360,9 @@ rm -rf /home/sk/vscode/aws-sagents-dlc/kiro-sandbox/services/*/aidlc-docs
 ✅ **Fully deployed to AWS Bedrock AgentCore Runtime**
 
 **Configuration**:
-- Lambda timeout: 900 seconds (15 minutes)
-- Lambda memory: 3008 MB
-- Runtime: Python 3.12
+- Idle timeout: 900 seconds (15 minutes, configurable up to 8 hours)
+- Memory: 3008 MB
+- Runtime: Python 3.12 (serverless compute)
 - S3 persistence: Enabled (`aidlc-agentcore-sessions`)
 - IAM permissions: Bedrock + S3
 
@@ -389,7 +389,7 @@ rm -rf /home/sk/vscode/aws-sagents-dlc/kiro-sandbox/services/*/aidlc-docs
 ### Production Patterns Implemented
 
 **Reliability**:
-- ✅ S3 session persistence (workflows survive Lambda container recycling)
+- ✅ S3 session persistence (workflows survive runtime container recycling)
 - ✅ Workflow resumption via persistent state (`aidlc-state.md`)
 - ✅ Exponential backoff retries (3 attempts, 1s/2s/4s delays)
 - ✅ Transient error detection and automatic retry
@@ -452,10 +452,10 @@ agentcore logs | grep -i "error\|session"
 ```
 
 **Common causes**:
-- Session expired (> 15 min timeout)
+- Session expired (idle timeout reached)
 - S3 permissions missing in IAM role
 - Wrong session ID (typo)
-- `USE_S3_PERSISTENCE` not set to `true` in Lambda env vars
+- `USE_S3_PERSISTENCE` not set to `true` in runtime environment variables
 
 **Solution**: See [S3 Configuration Complete](agentcore/s3_configuration_complete.md#troubleshooting)
 
@@ -523,12 +523,12 @@ rm -rf {repo}/aidlc-docs
 
 ### Module Not Found (Deployment)
 
-**Symptom**: `ModuleNotFoundError` in Lambda logs
+**Symptom**: `ModuleNotFoundError` in AgentCore Runtime logs
 
 **Solutions**:
 - Ensure all dependencies packaged: `pip install -r requirements.txt -t dist/package/`
 - Verify `.kiro/` directory copied to package root
-- Check Lambda handler path: `agentcore_entrypoint.handler`
+- Check handler path: `agentcore_entrypoint.handler`
 
 ---
 
@@ -569,7 +569,7 @@ rm -rf {repo}/aidlc-docs
 **AWS Resources**:
 - **CloudWatch Logs**: `/aws/bedrock-agentcore/runtimes/aidlcagent_aidlcagent-GYGZ5sAxEy-DEFAULT`
 - **S3 Bucket**: `s3://aidlc-agentcore-sessions/sessions/`
-- **Lambda Function**: `aidlc-agentcore`
+- **AgentCore Runtime**: Deployed via `agentcore deploy`
 
 **External Links**:
 - **Strands Framework**: https://github.com/strands-ai/strands
@@ -603,7 +603,7 @@ When adding new documentation:
 
 ## 🎓 Course Project Status
 
-**Stanford CS224V - Conversational Virtual Assistants with LLMs**
+**AWS AI - Conversational Virtual Assistants with LLMs**
 
 ✅ All 11 requirements implemented and verified  
 ✅ Production deployment complete  

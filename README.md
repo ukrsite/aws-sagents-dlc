@@ -2,13 +2,13 @@
 
 > **AI-Driven Development Life Cycle Agent** - A production-grade multi-agent system for automated software development workflows using AWS Bedrock and Strands framework.
 
-[![Course](https://img.shields.io/badge/Stanford-CS224V-red.svg)](https://cs224v.stanford.edu/)
+[![Course](https://img.shields.io/badge/Course-AWS%20AI-orange.svg)](https://aws.amazon.com/)
 [![Status](https://img.shields.io/badge/Status-Production%20Ready-success.svg)](https://github.com)
 [![Deployed](https://img.shields.io/badge/AWS-Bedrock%20AgentCore-orange.svg)](https://aws.amazon.com/bedrock/)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Course Project**: Stanford CS224V - Conversational Virtual Assistants with LLMs  
+**Course Project**: AWS AI - Conversational Virtual Assistants with LLMs  
 **Last Updated**: 2026-05-20  
 **Status**: ✅ All 11 course requirements implemented and verified
 
@@ -54,7 +54,7 @@ All while maintaining **cost efficiency** ($2-3 per workflow), **human oversight
 - **13-stage adaptive workflow** that intelligently skips unnecessary steps
 - **Fresh agent per stage** minimizes token costs by 15-61%
 - **Human-in-the-loop** at every critical decision point
-- **S3 session persistence** enables 15-minute workflows across Lambda containers
+- **S3 session persistence** enables 15-minute workflows across serverless runtime containers
 - **Production-ready patterns**: retries, hooks, path constraints, observability
 
 ---
@@ -88,7 +88,7 @@ All while maintaining **cost efficiency** ($2-3 per workflow), **human oversight
 ### 🔄 Reliability
 - **Exponential backoff retries**: 3 attempts with 1s/2s/4s delays
 - **Workflow resumption**: Persistent state enables session recovery
-- **S3 session persistence**: Survives Lambda container recycling
+- **S3 session persistence**: Survives AgentCore Runtime container recycling
 - **Transient error detection**: Automatic retry on Bedrock errors
 
 ### 💰 Cost Optimization
@@ -466,10 +466,10 @@ uv run python evals/run_evals.py
 - **Construction phase**: 7-10 minutes (6 stages)
 - **Total**: 10-15 minutes
 
-**Lambda Configuration**:
-- **Timeout**: 900 seconds (15 minutes)
-- **Memory**: 3008 MB
-- **Runtime**: Python 3.12
+**Idle Session Timeout**:
+- **Default**: 900 seconds (15 minutes) - runtime session terminates if no activity
+- **Maximum**: 28,800 seconds (8 hours) - configurable via AgentCore Runtime settings
+- **Note**: Timeout applies to idle periods; active workflows can run longer with S3 session persistence
 
 ---
 
@@ -486,7 +486,7 @@ uv run python evals/run_evals.py
 
 - ✅ **Exponential backoff retries**: 3 attempts with 1s/2s/4s delays
 - ✅ **Workflow resumption**: Persistent `aidlc-state.md` enables recovery
-- ✅ **S3 session persistence**: Survives Lambda container recycling
+- ✅ **S3 session persistence**: Survives AgentCore Runtime container recycling
 - ✅ **Transient error detection**: Automatic retry on Bedrock throttling/timeouts
 
 ### 📊 Observability
@@ -530,7 +530,7 @@ agentcore logs | grep -i "session\|error"
 ```
 
 **Solutions**:
-- Ensure `USE_S3_PERSISTENCE=true` in Lambda environment variables
+- Ensure `USE_S3_PERSISTENCE=true` in AgentCore Runtime environment variables
 - Verify S3 bucket permissions in IAM role
 - Check session ID is correct (no typos)
 
@@ -562,12 +562,12 @@ aws s3 cp s3://aidlc-agentcore-sessions/sessions/<session_id>.json - | jq '.fina
 
 #### ❌ Module Not Found (Deployment)
 
-**Symptom**: `ModuleNotFoundError` in Lambda logs
+**Symptom**: `ModuleNotFoundError` in AgentCore Runtime logs
 
 **Solutions**:
 - Ensure all dependencies packaged: `pip install -r requirements.txt -t dist/package/`
 - Verify `.kiro/` directory copied to package root
-- Check Lambda handler path: `agentcore_entrypoint.handler`
+- Check AgentCore handler path: `agentcore_entrypoint.handler`
 
 ---
 
@@ -627,7 +627,7 @@ This is a course project and not actively accepting contributions. However, feel
 
 ## Acknowledgments
 
-**Course**: Stanford CS224V - Conversational Virtual Assistants with LLMs  
+**Course**: AWS AI - Conversational Virtual Assistants with LLMs  
 **Framework**: [Strands Agents](https://github.com/strands-ai/strands) by Strands AI  
 **Platform**: AWS Bedrock + Claude 4.x models by Anthropic  
 **Tools**: strands-agents-tools, strands-agents-evals  
@@ -664,7 +664,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 <div align="center">
 
-**Built with ❤️ for Stanford CS224V**
+**Built with ❤️ for AWS AI**
 
 [Documentation](docs/README.md) • [Architecture](docs/Implemented_topics.md) • [Quick Start](docs/QUICK_START.md)
 

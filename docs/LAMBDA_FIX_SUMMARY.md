@@ -1,14 +1,16 @@
-# Lambda Deployment Fix - Final Summary
+# AgentCore Runtime Deployment Fix - Final Summary
 
 **Date**: 2026-05-20  
 **Status**: ✅ **WORKING** - Tested and Verified  
 **Test Session**: `2d3acafa-b5b6-4f4c-bdf4-0f52d7a8ac9d`
 
+**Note**: AgentCore Runtime uses serverless compute under the hood. This guide explains the filesystem workarounds needed.
+
 ---
 
 ## Problem Statement
 
-AWS Lambda's `/var/task` directory is **read-only**, but the AI-DLC workflow needs to **write** planning artifacts (`aidlc-docs/`) to the target repository, causing permission errors.
+The serverless runtime's `/var/task` directory is **read-only**, but the AI-DLC workflow needs to **write** planning artifacts (`aidlc-docs/`) to the target repository, causing permission errors.
 
 **Original Error**:
 ```
@@ -21,7 +23,7 @@ Workflow failed: [Errno 13] Permission denied: '/var/task/kiro-sandbox'
 
 ### Issue Chain
 
-1. **Lambda filesystem constraint**: `/var/task` is read-only ❌
+1. **Serverless runtime filesystem constraint**: `/var/task` is read-only ❌
 2. **Workflow requirement**: Must write to `{repo}/aidlc-docs/` ✍️  
 3. **Deployment complexity**: `agentcore deploy` rebuilds staging from source, wiping manual copies 🔄
 
@@ -66,7 +68,7 @@ cp -r "$WORKSPACE_ROOT/.kiro" "$SCRIPT_DIR/"
 # agentcore_entrypoint.py
 workspace_root = os.environ.get("AIDLC_WORKSPACE_ROOT", "")
 if workspace_root == "/var/task":
-    # Lambda: copy /var/task (read-only) → /tmp (writable)
+    # AgentCore Runtime: copy /var/task (read-only) → /tmp (writable)
     source_repo = Path(f"/var/task/{session.repo}")
     temp_repo = Path(f"/tmp/aidlc-workdir/{session.session_id}/{repo_name}")
     temp_repo.parent.mkdir(parents=True, exist_ok=True)
@@ -145,7 +147,7 @@ cd /home/sk/vscode/aws-sagents-dlc/ai-dlc-agent
 # 1. Copy workspace directories to source tree
 ./deploy.sh
 
-# 2. Deploy to Lambda
+# 2. Deploy to AgentCore Runtime
 agentcore deploy
 
 # 3. Test
@@ -218,7 +220,7 @@ agentcore deploy      # ❌ Won't have kiro-sandbox
 │                                                              │
 │  agentcore deploy                                            │
 │    └─> Package ai-dlc-agent/ (codeLocation: ".")           │
-│    └─> Upload to Lambda                                     │
+│    └─> Upload to AgentCore Runtime                          │
 │    └─> Deploy /var/task/ (read-only)                       │
 │         ├─ agentcore_entrypoint.py                          │
 │         ├─ app/                                             │
@@ -228,7 +230,7 @@ agentcore deploy      # ❌ Won't have kiro-sandbox
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
-│ Runtime (Lambda Invocation)                                  │
+│ Runtime (AgentCore Invocation)                               │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  HTTP POST /invocations { action: "start", repo: "..." }    │
@@ -259,7 +261,7 @@ agentcore deploy      # ❌ Won't have kiro-sandbox
 - **Duration**: 15.1 minutes (9 stages)
 - **Tokens**: 2,038,052
 
-### Lambda (Expected)
+### AgentCore Runtime (Expected)
 - **Duration**: Similar (~15-20 minutes)
 - **Tokens**: Similar
 - **Overhead**: +2-5 seconds for /tmp copy (one-time per session)
@@ -267,7 +269,7 @@ agentcore deploy      # ❌ Won't have kiro-sandbox
 ### Cost
 - **Copy operation**: Negligible (~5.1MB in <5 seconds)
 - **S3 persistence**: $0.023 per 1,000 PUT requests
-- **Lambda compute**: Billed per 100ms increments
+- **Serverless compute**: Billed per 100ms increments
 - **Total impact**: <1% increase
 
 ---
@@ -276,7 +278,7 @@ agentcore deploy      # ❌ Won't have kiro-sandbox
 
 ### Key Insights
 
-1. **Lambda filesystem is read-only except /tmp**
+1. **Serverless runtime filesystem is read-only except /tmp**
    - `/var/task`: Code location (read-only)
    - `/tmp`: 10GB writable storage
 
@@ -303,7 +305,7 @@ agentcore deploy      # ❌ Won't have kiro-sandbox
 
 - ❌ Manual staging copies (wiped on redeploy)
 - ❌ Relative paths (re-resolved against WORKSPACE_ROOT)
-- ❌ File-based logging (lost when Lambda exits)
+- ❌ File-based logging (lost when runtime exits)
 - ❌ Trying to write directly to /var/task
 
 ---
@@ -320,9 +322,9 @@ agentcore deploy      # ❌ Won't have kiro-sandbox
 ## Commit Message
 
 ```
-fix: Lambda read-only filesystem support with /tmp workspace copy
+fix: AgentCore Runtime read-only filesystem support with /tmp workspace copy
 
-Lambda's /var/task is read-only, preventing workflow from writing
+The serverless runtime's /var/task is read-only, preventing workflow from writing
 aidlc-docs/ artifacts. This change implements a 3-part fix:
 
 1. Copy kiro-sandbox/ and .kiro/ to SOURCE TREE (not staging)
@@ -330,7 +332,7 @@ aidlc-docs/ artifacts. This change implements a 3-part fix:
    - agentcore deploy packages from codeLocation: "."
 
 2. Runtime copy from /var/task → /tmp at workflow start
-   - agentcore_entrypoint.py detects Lambda environment
+   - agentcore_entrypoint.py detects serverless runtime environment
    - Copies repo to /tmp/aidlc-workdir/{session_id}/
    - Passes absolute path to avoid re-resolution
 
@@ -352,11 +354,11 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 
 <div align="center">
 
-## ✅ Lambda Deployment - RESOLVED
+## ✅ AgentCore Runtime Deployment - RESOLVED
 
 **AWS SAGents DLC - Bedrock AgentCore Runtime**
 
-Successfully deployed and tested on AWS Lambda  
+Successfully deployed and tested on AgentCore Runtime  
 All 13 workflow stages now executing correctly
 
 **Test Session**: `2d3acafa-b5b6-4f4c-bdf4-0f52d7a8ac9d`

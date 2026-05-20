@@ -32,9 +32,9 @@ Running: `agentcore deploy` (in progress)
 ## Why S3 Was Configured
 
 ### Problem Without S3
-- AgentCore Runtime (Lambda) has ephemeral storage (`/tmp`)
+- AgentCore Runtime has ephemeral storage (`/tmp`)
 - Sessions stored in-memory are lost when:
-  - Lambda container recycles (automatic after inactivity)
+  - Runtime container recycles (automatic after inactivity)
   - Different container handles next invocation
   - Container shuts down (15-min timeout)
 - Result: Workflows fail mid-execution with "Session not found"
